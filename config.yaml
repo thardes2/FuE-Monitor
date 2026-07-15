@@ -1,0 +1,56 @@
+# Configuration for the R&D funding call monitoring tool
+
+# Keywords/search terms used for matching and filtering.
+# Case doesn't matter. A single match (in title or description) is enough.
+# Note: keep these in German — the source databases (EU portal German results,
+# foerderdatenbank.de) describe programmes in German, so German search terms
+# match far more reliably than English ones.
+keywords:
+  - "Künstliche Intelligenz"
+  # - "Digitalisierung"
+  # - "Forschung"
+  # - "Autonom"
+  # - "Fahrzeug"
+  # - "Drohne"
+  # - "UAV"
+
+# Minimum funding rate in percent. Calls with a detected rate below this value
+# are dropped. Entries where no rate could be detected are kept and marked as
+# "unknown" in the output (please check manually).
+min_funding_rate_percent: 0
+
+# Only keep calls whose deadline is still in the future (already-expired ones are dropped).
+open_deadlines_only: true
+
+# Deadlines closer than X days are marked as "urgent" in the output.
+deadline_warning_days: 14
+
+eu_portal:
+  enabled: true
+  page_size: 100
+  max_pages: 3
+
+manual_import:
+  enabled: true
+  # Drop saved search-result pages here (e.g. from foerderdatenbank.de:
+  # search in your browser -> save page completely as .html -> put it in this folder).
+  input_dir: "input"
+
+bmftr_bekanntmachungen:
+  # BMFTR/BMBF "Bekanntmachungen" (the central German federal R&D call announcements).
+  # Their own listing/search page disallows automated crawling (robots.txt), but
+  # individual call pages are crawlable. We use Google's Programmable Search API to
+  # find matching call URLs (Google already indexed them, robots.txt-compliant),
+  # then fetch each call page directly. Setup (free tier, ~5 min):
+  #  1. https://programmablesearchengine.google.com/ -> new search engine, restrict
+  #     to site "bmftr.bund.de" -> copy the "Search engine ID" into google_cx below.
+  #  2. https://console.cloud.google.com/apis/library/customsearch.googleapis.com
+  #     -> enable API -> create an API key -> paste into google_api_key below.
+  # Free tier: 100 queries/day. Leave google_api_key empty to disable this source.
+  enabled: true
+  google_api_key: ""
+  google_cx: ""
+  max_results_per_keyword: 10
+
+output:
+  path: "output/funding_calls.xlsx"
