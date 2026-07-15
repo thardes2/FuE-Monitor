@@ -1,5 +1,5 @@
-requests
-beautifulsoup4
-pyyaml
-openpyxl
-python-dateutil
+requests==2.32.5
+beautifulsoup4==4.15.0
+pyyaml==6.0.3
+openpyxl==3.1.5
+python-dateutil==2.9.0.post0
