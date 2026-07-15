@@ -8,17 +8,15 @@ and deadline, and writes the result to an Excel file.
 - **EU Funding & Tenders Portal** – fully automatic, via the public search API.
 - **BMFTR/BMBF Bekanntmachungen** (German federal R&D call announcements) – fully
   automatic. Their own search page disallows automated crawling (robots.txt), so we
-  find current call URLs via Google's Programmable Search API (site-restricted to
-  bmftr.bund.de, so we only ever touch pages Google already indexed) and then fetch
-  each call page directly, which robots.txt does allow. One-time setup (free, ~5 min):
-  1. [programmablesearchengine.google.com](https://programmablesearchengine.google.com/)
-     → create a search engine restricted to site `bmftr.bund.de` → copy its
-     "Search engine ID" into `google_cx` in [config.yaml](config.yaml).
-  2. [Google Cloud Console](https://console.cloud.google.com/apis/library/customsearch.googleapis.com)
-     → enable the Custom Search API → create an API key → paste into
-     `google_api_key` in [config.yaml](config.yaml).
-  3. Free tier covers 100 queries/day. Leave `google_api_key` empty to disable this
-     source (it's skipped automatically, no error).
+  find current call URLs via the Brave Search API (site-restricted to bmftr.bund.de,
+  so we only ever touch pages Brave already indexed) and then fetch each call page
+  directly, which robots.txt does allow. (We originally used Google's Custom Search
+  API here, but Google has closed that API to new projects/customers.) One-time setup
+  (~2 min): [api-dashboard.search.brave.com](https://api-dashboard.search.brave.com/)
+  → sign up, add a payment method (required, but usage-based — ~$5 in free credits/month
+  easily covers our volume of a few queries/day) → create an API key → paste into
+  `brave_api_key` in [config.yaml](config.yaml). Leave it empty to disable this source
+  (it's skipped automatically, no error).
 
   Note: fetching each call page waits 30s in between, per bmftr.bund.de's
   `Crawl-delay`, so a run with several hits takes a bit longer.
