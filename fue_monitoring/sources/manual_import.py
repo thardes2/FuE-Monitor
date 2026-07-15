@@ -8,11 +8,13 @@ file into input_dir. This module reads all HTML files placed there.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from .. import llm_extract
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
 
@@ -34,7 +36,7 @@ def _context_text(link_tag) -> str:
     return link_tag.get_text(" ", strip=True)
 
 
-def _parse_html_file(path: Path, keywords: list[str]) -> list[FundingCall]:
+def _parse_html_file(path: Path, keywords: list[str], gemini_api_key: str, gemini_model: str) -> list[FundingCall]:
     soup = BeautifulSoup(path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
     entries: dict[str, FundingCall] = {}
 
@@ -50,6 +52,14 @@ def _parse_html_file(path: Path, keywords: list[str]) -> list[FundingCall]:
         context = _context_text(a)
         funding_rate, funding_rate_percent = extract_funding_rate(context)
         deadline = extract_deadline(context)
+
+        if gemini_api_key:
+            llm_result = llm_extract.extract(context, title, gemini_api_key, gemini_model)
+            title, funding_rate, funding_rate_percent, deadline = llm_extract.merge(
+                llm_result, title, funding_rate, funding_rate_percent, deadline
+            )
+            time.sleep(1)  # stay well under the free-tier requests-per-minute limit
+
         found_keywords = matched_keywords(f"{title} {context}", keywords)
 
         notes = []
@@ -73,14 +83,14 @@ def _parse_html_file(path: Path, keywords: list[str]) -> list[FundingCall]:
     return list(entries.values())
 
 
-def fetch(input_dir: str, keywords: list[str]) -> list[FundingCall]:
+def fetch(input_dir: str, keywords: list[str], gemini_api_key: str = "", gemini_model: str = "") -> list[FundingCall]:
     directory = Path(input_dir)
     if not directory.exists():
         return []
 
     results: dict[str, FundingCall] = {}
     for path in sorted(directory.glob("*.htm*")):
-        for entry in _parse_html_file(path, keywords):
+        for entry in _parse_html_file(path, keywords, gemini_api_key, gemini_model):
             results[entry.dedup_key] = entry
 
     return list(results.values())

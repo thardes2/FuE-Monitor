@@ -19,9 +19,14 @@ def collect(config: dict) -> list[FundingCall]:
             max_pages=config["eu_portal"]["max_pages"],
         )
 
+    gemini_api_key = config["gemini"]["api_key"] if config["gemini"]["enabled"] else ""
+    gemini_model = config["gemini"]["model"]
+
     if config["manual_import"]["enabled"]:
         print("Reading manually saved funding-database pages ...")
-        entries += manual_import.fetch(config["manual_import"]["input_dir"], keywords)
+        entries += manual_import.fetch(
+            config["manual_import"]["input_dir"], keywords, gemini_api_key, gemini_model
+        )
 
     if config["bmftr_bekanntmachungen"]["enabled"]:
         print("Searching BMFTR/BMBF Bekanntmachungen ...")
@@ -29,6 +34,8 @@ def collect(config: dict) -> list[FundingCall]:
             keywords,
             api_key=config["bmftr_bekanntmachungen"]["brave_api_key"],
             max_results_per_keyword=config["bmftr_bekanntmachungen"]["max_results_per_keyword"],
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
         )
 
     return entries
