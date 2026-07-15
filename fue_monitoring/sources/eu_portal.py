@@ -9,6 +9,8 @@ with a 'deadlineDate' are treated as an actual call with a deadline.
 
 from __future__ import annotations
 
+import json
+
 import requests
 from dateutil import parser as dateparser
 
@@ -33,6 +35,33 @@ def _first(metadata: dict, *keys: str) -> str:
     return ""
 
 
+def _budget_from_overview(metadata: dict, identifier: str) -> str:
+    """Open Horizon Europe "topics" don't carry a flat esIN_overallBudget; the actual
+    per-topic budget is nested in the budgetOverview JSON blob, keyed by an internal
+    topic ID rather than the public identifier, so we find our topic by matching the
+    identifier against each action's description text instead."""
+    raw = _first(metadata, "budgetOverview")
+    if not raw or not identifier:
+        return ""
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return ""
+
+    for actions in data.get("budgetTopicActionMap", {}).values():
+        for action in actions:
+            if identifier in action.get("action", ""):
+                max_contribution = action.get("maxContribution")
+                expected_grants = action.get("expectedGrants")
+                if max_contribution:
+                    text = f"{max_contribution} EUR"
+                    if expected_grants:
+                        text += f" ({expected_grants} erwartete Förderungen)"
+                    return text
+    return ""
+
+
 def _to_funding_call(result: dict) -> FundingCall | None:
     metadata = result.get("metadata", {})
     deadline_raw = _first(metadata, "deadlineDate")
@@ -45,12 +74,18 @@ def _to_funding_call(result: dict) -> FundingCall | None:
         deadline = None
 
     title = result.get("summary") or _first(metadata, "title")
-    programme = _first(metadata, "esST_programmes", "esIN_programDescription", "esST_programAbbreviation")
+    identifier = _first(metadata, "identifier", "callIdentifier")
+    # Open Horizon Europe "topics" (the majority of relevant results) don't expose
+    # esST_programmes/esIN_euContributionRate at all — those only show up on a
+    # different record type (awarded/ended projects). typesOfAction is what's
+    # actually populated for topics. A flat funding-rate percentage often plain
+    # doesn't exist for topics (lump-sum or "up to 100%" grants), so funding_rate
+    # stays blank rather than guessing — that's accurate, not a gap.
+    programme = _first(metadata, "typesOfAction", "esST_programmes", "esIN_programDescription", "esST_programAbbreviation")
     rate_raw = _first(metadata, "esIN_euContributionRate")
     funding_rate = f"{rate_raw} %" if rate_raw else ""
     funding_rate_percent = float(rate_raw) if rate_raw else None
-    budget = _first(metadata, "esIN_overallBudget", "budget")
-    identifier = _first(metadata, "callIdentifier", "identifier")
+    budget = _budget_from_overview(metadata, identifier) or _first(metadata, "esIN_overallBudget", "budget")
 
     return FundingCall(
         source="EU Funding & Tenders Portal",

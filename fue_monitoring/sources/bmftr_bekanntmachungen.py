@@ -20,6 +20,7 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
+from .. import llm_extract
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
 
@@ -48,7 +49,7 @@ def _search_call_urls(keyword: str, api_key: str, max_results: int) -> list[str]
     ]
 
 
-def _fetch_call(url: str, keywords: list[str]) -> FundingCall | None:
+def _fetch_call(url: str, keywords: list[str], gemini_api_key: str, gemini_model: str) -> FundingCall | None:
     try:
         resp = requests.get(url, headers=HEADERS, timeout=30)
     except requests.exceptions.RequestException as exc:
@@ -69,6 +70,13 @@ def _fetch_call(url: str, keywords: list[str]) -> FundingCall | None:
     # No blind fallback here: these pages print a publication date right at the
     # top, which the generic "first date in text" fallback would misread as a deadline.
     deadline = extract_deadline(text, fallback_to_any_date=False)
+
+    if gemini_api_key:
+        llm_result = llm_extract.extract(text, title, gemini_api_key, gemini_model)
+        title, funding_rate, funding_rate_percent, deadline = llm_extract.merge(
+            llm_result, title, funding_rate, funding_rate_percent, deadline
+        )
+
     found_keywords = matched_keywords(f"{title} {text}", keywords)
 
     notes = []
@@ -90,7 +98,13 @@ def _fetch_call(url: str, keywords: list[str]) -> FundingCall | None:
     )
 
 
-def fetch(keywords: list[str], api_key: str, max_results_per_keyword: int = 10) -> list[FundingCall]:
+def fetch(
+    keywords: list[str],
+    api_key: str,
+    max_results_per_keyword: int = 10,
+    gemini_api_key: str = "",
+    gemini_model: str = "",
+) -> list[FundingCall]:
     if not api_key:
         print("  (BMFTR-Bekanntmachungen: brave_api_key not set, skipping this source)")
         return []
@@ -104,7 +118,7 @@ def fetch(keywords: list[str], api_key: str, max_results_per_keyword: int = 10) 
     for i, url in enumerate(urls):
         if i > 0:
             time.sleep(CRAWL_DELAY_SECONDS)  # respect bmftr.bund.de's robots.txt crawl-delay
-        entry = _fetch_call(url, keywords)
+        entry = _fetch_call(url, keywords, gemini_api_key, gemini_model)
         if entry is not None:
             entries[entry.dedup_key] = entry
 

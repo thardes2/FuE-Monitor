@@ -26,6 +26,18 @@ and deadline, and writes the result to an Excel file.
   (Cmd+S → "complete webpage") and drop the `.html` file into the `input/` folder.
   It gets picked up automatically on the next run.
 
+## Extraction quality (funding rate / deadline)
+
+The BMFTR pages and manually imported foerderdatenbank.de pages are raw scraped
+text, and German funding-call text phrases the funding rate and deadline in too
+many different ways for fixed regex patterns to catch reliably. To improve on
+that, both sources optionally run the scraped text through Gemini (structured
+JSON output, explicitly told to return null rather than guess) and use whatever
+it finds, falling back to the regex result for anything it doesn't. Setup
+(~1 min, free): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+→ create an API key → paste into `gemini.api_key` in [config.yaml](config.yaml).
+Leave it empty to use the regex-only extraction.
+
 ## Setup
 
 ```bash

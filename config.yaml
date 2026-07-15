@@ -45,5 +45,21 @@ bmftr_bekanntmachungen:
   brave_api_key: ""
   max_results_per_keyword: 10
 
+gemini:
+  # Used to extract the funding rate / deadline from raw scraped text (BMFTR pages,
+  # manually imported foerderdatenbank.de pages) more reliably than plain regex can —
+  # German funding-call text phrases these in too many different ways for fixed
+  # patterns to catch consistently. Falls back to the regex-based extraction for
+  # anything it doesn't find. Setup (~1 min, free): https://aistudio.google.com/apikey
+  # -> create an API key -> paste below. Leave empty to skip and use regex only.
+  enabled: true
+  api_key: ""
+  # "gemini-flash-lite-latest" is an alias Google keeps pointed at their current
+  # lite flash model. We use the lite variant specifically because the full
+  # "gemini-flash-latest" (currently gemini-3.5-flash) only gets 20 free
+  # requests/day per project - way too little for this tool's actual volume.
+  # The lite tier has a separate, much higher free daily quota.
+  model: "gemini-flash-lite-latest"
+
 output:
   path: "output/funding_calls.xlsx"
