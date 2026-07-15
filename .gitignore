@@ -4,3 +4,4 @@ __pycache__/
 output/*.xlsx
 input/*.html
 input/*.htm
+config.local.yaml
