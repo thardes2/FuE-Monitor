@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+
 """Connector for BMFTR/BMBF "Bekanntmachungen" (German federal R&D call announcements).
 
 bmftr.bund.de's own listing/search page lives under /SiteGlobals/, which its

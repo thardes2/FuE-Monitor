@@ -1,4 +1,4 @@
-# R&D Funding Call Monitoring
+# FuE-Monitor
 
 Collects R&D funding calls from three sources, filters them by keywords, funding rate
 and deadline, and writes the result to an Excel file.
@@ -59,3 +59,7 @@ marked as "urgent".
 
 The result is written to `output/funding_calls.xlsx` (colour-coded by deadline
 status: expired/urgent/open/unknown, with an autofilter on every column).
+
+## License
+
+AGPL-3.0-or-later — see [LICENSE](LICENSE).
