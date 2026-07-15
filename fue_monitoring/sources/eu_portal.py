@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+
 """Connector for the public search API of the EU Funding & Tenders Portal.
 
 The search API (api.tech.ec.europa.eu/search-api) is a shared full-text index over a

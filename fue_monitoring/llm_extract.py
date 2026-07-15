@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+
 """Gemini-based extraction of funding rate / deadline from raw scraped text.
 
 Regex can't reliably handle the many ways German funding-call text phrases a

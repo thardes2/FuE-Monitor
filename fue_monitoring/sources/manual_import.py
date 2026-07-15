@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+
 """Import of manually saved search-result pages (e.g. foerderdatenbank.de).
 
 foerderdatenbank.de is protected by bot-detection (Radware/Reblaze) and therefore
