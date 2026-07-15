@@ -4,8 +4,11 @@ bmftr.bund.de's own listing/search page lives under /SiteGlobals/, which its
 robots.txt disallows for automated crawling. Individual call pages (under
 /SharedDocs/Bekanntmachungen/) are NOT disallowed, so we're free to fetch those
 directly. To discover current call URLs without crawling the disallowed search
-page ourselves, we use Google's Programmable Search API (site-restricted to
-bmftr.bund.de) — this only returns pages Google's own crawler already indexed.
+page ourselves, we use the Brave Search API (site-restricted via a "site:" query)
+— this only returns pages Brave's own crawler already indexed.
+
+(We originally used Google's Custom Search API for this, but Google has closed
+that API to new projects/customers, so it no longer works for new setups.)
 
 Respects the site's "Crawl-delay: 30" by waiting between requests to bmftr.bund.de.
 """
@@ -20,33 +23,28 @@ from bs4 import BeautifulSoup
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
 
-SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
+SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 TARGET_SITE = "bmftr.bund.de"
 CALL_PATH_MARKER = "/SharedDocs/Bekanntmachungen/"
 CRAWL_DELAY_SECONDS = 30
 HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring; personal R&D funding monitoring)"}
 
 
-def _search_call_urls(keyword: str, api_key: str, cx: str, max_results: int) -> list[str]:
-    params = {
-        "key": api_key,
-        "cx": cx,
-        "q": keyword,
-        "siteSearch": TARGET_SITE,
-        "siteSearchFilter": "i",
-        "num": min(max_results, 10),
-    }
-    resp = requests.get(SEARCH_URL, params=params, timeout=30)
+def _search_call_urls(keyword: str, api_key: str, max_results: int) -> list[str]:
+    headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
+    print(f"  (BMFTR-Bekanntmachungen: Searching for '{keyword}'...)")
+    params = {"q": f"site:{TARGET_SITE} {keyword}", "count": min(max_results, 20)}
+    resp = requests.get(SEARCH_URL, headers=headers, params=params, timeout=30)
     if resp.status_code != 200:
-        reason = resp.json().get("error", {}).get("message", resp.text[:200])
-        print(f"  (BMFTR-Bekanntmachungen: Google search failed for '{keyword}': {reason})")
+        reason = resp.text[:200]
+        print(f"  (BMFTR-Bekanntmachungen: Brave search failed for '{keyword}': {reason})")
         return []
 
     data = resp.json()
     return [
-        item["link"]
-        for item in data.get("items", [])
-        if CALL_PATH_MARKER in item.get("link", "")
+        item["url"]
+        for item in data.get("web", {}).get("results", [])
+        if CALL_PATH_MARKER in item.get("url", "")
     ]
 
 
@@ -92,14 +90,14 @@ def _fetch_call(url: str, keywords: list[str]) -> FundingCall | None:
     )
 
 
-def fetch(keywords: list[str], api_key: str, cx: str, max_results_per_keyword: int = 10) -> list[FundingCall]:
-    if not api_key or not cx:
-        print("  (BMFTR-Bekanntmachungen: google_api_key/google_cx not set, skipping this source)")
+def fetch(keywords: list[str], api_key: str, max_results_per_keyword: int = 10) -> list[FundingCall]:
+    if not api_key:
+        print("  (BMFTR-Bekanntmachungen: brave_api_key not set, skipping this source)")
         return []
 
     urls: dict[str, None] = {}
     for keyword in keywords:
-        for url in _search_call_urls(keyword, api_key, cx, max_results_per_keyword):
+        for url in _search_call_urls(keyword, api_key, max_results_per_keyword):
             urls.setdefault(url, None)
 
     entries: dict[str, FundingCall] = {}

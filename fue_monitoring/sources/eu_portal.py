@@ -70,6 +70,7 @@ def fetch(keywords: list[str], page_size: int = 100, max_pages: int = 3) -> list
 
     for keyword in keywords:
         for page in range(1, max_pages + 1):
+            print(f"  (EU Portal: Searching for '{keyword}' on page {page}...)")
             data = _fetch_page(keyword, page, page_size)
             results = data.get("results", [])
             if not results:

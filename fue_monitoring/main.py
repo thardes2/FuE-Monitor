@@ -27,8 +27,7 @@ def collect(config: dict) -> list[FundingCall]:
         print("Searching BMFTR/BMBF Bekanntmachungen ...")
         entries += bmftr_bekanntmachungen.fetch(
             keywords,
-            api_key=config["bmftr_bekanntmachungen"]["google_api_key"],
-            cx=config["bmftr_bekanntmachungen"]["google_cx"],
+            api_key=config["bmftr_bekanntmachungen"]["brave_api_key"],
             max_results_per_keyword=config["bmftr_bekanntmachungen"]["max_results_per_keyword"],
         )
 
