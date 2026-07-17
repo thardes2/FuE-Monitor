@@ -9,7 +9,7 @@
 # foerderdatenbank.de) describe programmes in German, so German search terms
 # match far more reliably than English ones.
 keywords:
-  - "Künstliche Intelligenz"
+  - "Mikroelektronik"
 
 # Minimum funding rate in percent. Calls with a detected rate below this value
 # are dropped. Entries where no rate could be detected are kept and marked as
@@ -33,22 +33,93 @@ manual_import:
   # search in your browser -> save page completely as .html -> put it in this folder).
   input_dir: "input"
 
-bmftr_bekanntmachungen:
-  # BMFTR/BMBF "Bekanntmachungen" (the central German federal R&D call announcements).
-  # Their own listing/search page disallows automated crawling (robots.txt), but
-  # individual call pages are crawlable. We use the Brave Search API to find matching
-  # call URLs (Brave already indexed them, robots.txt-compliant), then fetch each call
-  # page directly. (We originally used Google's Custom Search API for this, but Google
-  # has closed that API to new projects/customers, so it no longer works for new setups.)
-  # Setup (~2 min): https://api-dashboard.search.brave.com/ -> sign up, add a payment
-  # method (required, but usage-based: ~$5 in free credits/month covers our tiny volume
-  # of a few queries/day) -> create an API key -> paste into brave_api_key below.
-  # Leave brave_api_key empty to disable this source.
-  # DON'T put the real key here — this file is committed. Put it in config.local.yaml
-  # instead (gitignored, deep-merged on top of this file at load time).
+gov_bekanntmachungen:
+  # German government funding-call announcement pages. Each source below was
+  # individually checked against its own robots.txt before being added here.
+  #
+  # Every source has two kinds of setting, and they answer two different
+  # questions — this is the part that isn't obvious, so read this before adding
+  # a new source:
+  #
+  #   1. WHERE do we start looking? This is `listing_url` (discovery: listing)
+  #      or `search_site` (discovery: brave) — a single fixed page/domain.
+  #
+  #   2. Of everything we find FROM there, which bits are actually a real
+  #      announcement? This is `link_path_marker`. A listing page has dozens of
+  #      <a href> links on it — nav menu, "Kontakt", "Impressum", footer links,
+  #      unrelated content — and only some of them lead to an actual funding
+  #      announcement. A Brave search similarly returns many URLs on the target
+  #      site, most of them irrelevant. `link_path_marker` is a substring: any
+  #      discovered link whose URL contains it is treated as an announcement to
+  #      fetch; everything else is ignored.
+  #
+  #   You can't just fold link_path_marker into listing_url, because they don't
+  #   describe the same thing: listing_url is the one page we visit up front,
+  #   while link_path_marker is a filter applied afterwards to the many
+  #   *different* URLs that page (or the Brave search) hands back to us.
+  #
+  # Concrete example (BLE below): listing_url is
+  # ".../Bekanntmachungen/Bekanntmachungen_node.html" — one page. That page's
+  # links include things like ".../BLE/Kontakt/kontakt_node.html" (ignore) and
+  # ".../Foerderungen-Auftraege/Bundesprogramm_Umbau_Tierhaltung/.../investiv_node.html"
+  # (a real funding programme — keep). link_path_marker "/Foerderungen-Auftraege/"
+  # is the piece of that second URL that separates it from the first.
+  #
+  # discovery modes:
+  #  - listing -> the site's own announcement listing page isn't disallowed by
+  #    robots.txt, so we crawl it directly to find announcement links.
+  #  - brave -> the site's listing/search page IS disallowed (like
+  #    bmftr.bund.de's /SiteGlobals/ path), but individual announcement pages
+  #    are allowed, so we use the Brave Search API (site: query) to find them
+  #    instead of ever crawling the disallowed page ourselves.
+  #
+  # Setup for "brave" sources (~2 min): https://api-dashboard.search.brave.com/
+  # -> sign up, add a payment method (required, but usage-based: ~$5 in free
+  # credits/month covers our tiny volume) -> create an API key -> paste into
+  # brave_api_key below. DON'T put the real key here — this file is committed.
+  # Put it in config.local.yaml instead (gitignored, deep-merged on top of this
+  # file at load time). Leave brave_api_key empty to skip all "brave" sources
+  # (any "listing" sources still work without it).
   enabled: true
   brave_api_key: ""
-  max_results_per_keyword: 10
+  sources:
+    - name: "BMFTR/BMBF Bekanntmachungen"
+      discovery: brave
+      # search_site: which domain we restrict the Brave search to — we never
+      # crawl bmftr.bund.de's own (disallowed) search page ourselves.
+      search_site: "bmftr.bund.de"
+      # Of the URLs Brave returns on that domain, only ones like
+      # ".../SharedDocs/Bekanntmachungen/DE/2026/07/2026-07-08-foo.html" are
+      # actual announcements — this substring is what picks those out.
+      link_path_marker: "/SharedDocs/Bekanntmachungen/"
+      max_results_per_keyword: 10
+      crawl_delay: 30 # bmftr.bund.de's robots.txt specifies Crawl-delay: 30
+
+    - name: "BLE (Bundesanstalt für Landwirtschaft und Ernährung)"
+      discovery: listing
+      # listing_url: the one overview page we fetch and scan for links.
+      listing_url: "https://www.ble.de/DE/Projektfoerderung/Bekanntmachungen/Bekanntmachungen_node.html"
+      # Of that page's many links (nav menu, "Kontakt", ...), only ones whose
+      # URL contains this are real funding-programme pages, e.g.
+      # ".../Foerderungen-Auftraege/Bundesprogramm_Umbau_Tierhaltung/.../investiv_node.html".
+      link_path_marker: "/Foerderungen-Auftraege/"
+      crawl_delay: 5 # ble.de has no robots.txt at all; a small delay anyway out of courtesy
+
+    - name: "BMFSFJ Förderrichtlinien"
+      discovery: listing
+      listing_url: "https://www.bmbfsfj.bund.de/bmbfsfj/ministerium/ausschreibungen-foerderung/foerderrichtlinien"
+      # Picks out links like ".../foerderrichtlinien/demokratie-leben" from the
+      # rest of that page's navigation.
+      link_path_marker: "/foerderrichtlinien/"
+      crawl_delay: 5 # bmbfsfj.bund.de's robots.txt allows everything, no delay specified
+
+    # NOT bundeswirtschaftsministerium.de (BMWE/BMWK): every page on that domain,
+    # including the plain homepage, redirects to validate.perfdrive.com — the same
+    # Radware Bot Manager challenge foerderdatenbank.de uses. It's not a robots.txt
+    # restriction we could work around (like BMFTR's), it's active bot-detection on
+    # the whole site, so this can't be a "listing" or "brave" source at all. If you
+    # need BMWE calls, that'd have to go through the same manual-export route as
+    # foerderdatenbank.de (see manual_import above).
 
 gemini:
   # Used to extract the funding rate / deadline from raw scraped text (BMFTR pages,

@@ -7,7 +7,7 @@ from .config import load_config
 from .export import write_excel
 from .filters import deadline_ok, deadline_status, funding_rate_ok, matched_keywords
 from .models import FundingCall
-from .sources import bmftr_bekanntmachungen, eu_portal, manual_import
+from .sources import eu_portal, gov_bekanntmachungen, manual_import
 
 
 def collect(config: dict) -> list[FundingCall]:
@@ -31,15 +31,13 @@ def collect(config: dict) -> list[FundingCall]:
             config["manual_import"]["input_dir"], keywords, gemini_api_key, gemini_model
         )
 
-    if config["bmftr_bekanntmachungen"]["enabled"]:
-        print("Searching BMFTR/BMBF Bekanntmachungen ...")
-        entries += bmftr_bekanntmachungen.fetch(
-            keywords,
-            api_key=config["bmftr_bekanntmachungen"]["brave_api_key"],
-            max_results_per_keyword=config["bmftr_bekanntmachungen"]["max_results_per_keyword"],
-            gemini_api_key=gemini_api_key,
-            gemini_model=gemini_model,
-        )
+    if config["gov_bekanntmachungen"]["enabled"]:
+        brave_api_key = config["gov_bekanntmachungen"]["brave_api_key"]
+        for source_config in config["gov_bekanntmachungen"]["sources"]:
+            print(f"Searching {source_config['name']} ...")
+            entries += gov_bekanntmachungen.fetch(
+                source_config, keywords, brave_api_key, gemini_api_key, gemini_model
+            )
 
     return entries
 
