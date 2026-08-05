@@ -121,23 +121,46 @@ gov_bekanntmachungen:
     # need BMWE calls, that'd have to go through the same manual-export route as
     # foerderdatenbank.de (see manual_import above).
 
-gemini:
+llm:
   # Used to extract the funding rate / deadline from raw scraped text (BMFTR pages,
   # manually imported foerderdatenbank.de pages) more reliably than plain regex can —
   # German funding-call text phrases these in too many different ways for fixed
   # patterns to catch consistently. Falls back to the regex-based extraction for
-  # anything it doesn't find. Setup (~1 min, free): https://aistudio.google.com/apikey
-  # -> create an API key -> paste below. Leave empty to skip and use regex only.
-  # DON'T put the real key here — this file is committed. Put it in config.local.yaml
-  # instead (gitignored, deep-merged on top of this file at load time).
+  # anything it doesn't find, and for anything the backend fails on.
+  #
+  # Set enabled: false to skip the LLM entirely and use regex-only extraction.
   enabled: true
-  api_key: ""
-  # "gemini-flash-lite-latest" is an alias Google keeps pointed at their current
-  # lite flash model. We use the lite variant specifically because the full
-  # "gemini-flash-latest" (currently gemini-3.5-flash) only gets 20 free
-  # requests/day per project - way too little for this tool's actual volume.
-  # The lite tier has a separate, much higher free daily quota.
-  model: "gemini-flash-lite-latest"
+
+  # Which backend to use — exactly one is called, never both:
+  #   "gemini" -> Google's hosted API. Needs an API key, subject to their quotas,
+  #               and the scraped page text is sent to Google.
+  #   "ollama" -> a local Ollama instance. No API key, no quota, nothing leaves
+  #               the machine; speed depends on local hardware.
+  backend: "ollama"
+
+  gemini:
+    # Setup (~1 min, free): https://aistudio.google.com/apikey -> create an API
+    # key -> put it in config.local.yaml (NOT here — this file is committed;
+    # config.local.yaml is gitignored and deep-merged on top at load time).
+    api_key: ""
+    # "gemini-flash-lite-latest" is an alias Google keeps pointed at their current
+    # lite flash model. We use the lite variant specifically because the full
+    # "gemini-flash-latest" (currently gemini-3.5-flash) only gets 20 free
+    # requests/day per project - way too little for this tool's actual volume.
+    # The lite tier has a separate, much higher free daily quota.
+    model: "gemini-flash-lite-latest"
+
+  ollama:
+    base_url: "http://localhost:11434"
+    # Must match a model the local instance actually has (see "ollama list").
+    model: "qwen3.6:latest"
+    # qwen3.6 is a reasoning model; leaving thinking on makes it spend most of its
+    # time and tokens on a thinking pass this extraction task doesn't need.
+    think: false
+    # Seconds. A ~50k-char announcement takes well under a minute on a machine
+    # that fits the model in memory, but a cold start or slower hardware can take
+    # considerably longer, hence the generous default.
+    timeout: 300
 
 output:
   path: "output/funding_calls.xlsx"

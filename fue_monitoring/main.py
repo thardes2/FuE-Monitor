@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from . import llm_extract
 from .config import load_config
 from .export import write_excel
 from .filters import deadline_ok, deadline_status, funding_rate_ok, matched_keywords
@@ -22,22 +23,23 @@ def collect(config: dict) -> list[FundingCall]:
             max_pages=config["eu_portal"]["max_pages"],
         )
 
-    gemini_api_key = config["gemini"]["api_key"] if config["gemini"]["enabled"] else ""
-    gemini_model = config["gemini"]["model"]
+    # Resolved once so a misconfigured backend reports itself here, rather than
+    # once per scraped page.
+    llm_config = config["llm"] if llm_extract.is_configured(config["llm"]) else None
+    if llm_config:
+        print(f"LLM extraction: using '{llm_config['backend']}' backend.")
+    elif config["llm"]["enabled"]:
+        print(f"LLM extraction: '{config['llm'].get('backend')}' backend not usable, using regex only.")
 
     if config["manual_import"]["enabled"]:
         print("Reading manually saved funding-database pages ...")
-        entries += manual_import.fetch(
-            config["manual_import"]["input_dir"], keywords, gemini_api_key, gemini_model
-        )
+        entries += manual_import.fetch(config["manual_import"]["input_dir"], keywords, llm_config)
 
     if config["gov_bekanntmachungen"]["enabled"]:
         brave_api_key = config["gov_bekanntmachungen"]["brave_api_key"]
         for source_config in config["gov_bekanntmachungen"]["sources"]:
             print(f"Searching {source_config['name']} ...")
-            entries += gov_bekanntmachungen.fetch(
-                source_config, keywords, brave_api_key, gemini_api_key, gemini_model
-            )
+            entries += gov_bekanntmachungen.fetch(source_config, keywords, brave_api_key, llm_config)
 
     return entries
 

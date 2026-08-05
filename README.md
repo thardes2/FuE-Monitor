@@ -45,12 +45,37 @@ rate and deadline, and writes the result to an Excel file.
 Every source except the EU portal is raw scraped text, and German funding-call
 text phrases the funding rate and deadline in too many different ways for fixed
 regex patterns to catch reliably. To improve on that, those sources optionally
-run the scraped text through Gemini (structured JSON output, explicitly told to
+run the scraped text through an LLM (structured JSON output, explicitly told to
 return null rather than guess) and use whatever it finds, falling back to the
-regex result for anything it doesn't. Setup (~1 min, free):
-[aistudio.google.com/apikey](https://aistudio.google.com/apikey) → create an API
-key → paste into `gemini.api_key` in `config.local.yaml` (see below). Leave it
-empty to use the regex-only extraction.
+regex result for anything it doesn't — and for anything the backend fails on, so
+an unreachable model never takes a run down.
+
+Configured under `llm` in [config.yaml](config.yaml). `llm.backend` picks exactly
+one of two backends — they're never both called:
+
+| | `backend: "gemini"` | `backend: "ollama"` |
+|---|---|---|
+| Runs | Google's hosted API | local Ollama instance |
+| Needs | an API key, subject to Google's quotas | Ollama running locally with the model pulled |
+| Privacy | scraped page text is sent to Google | nothing leaves the machine |
+| Speed | fast, network-bound | depends on local hardware |
+
+- **Gemini setup** (~1 min, free): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+  → create an API key → put it in `config.local.yaml` (see below).
+- **Ollama setup**: have [Ollama](https://ollama.com) running and the model pulled
+  (`ollama pull qwen3.6`), then set `llm.ollama.model` to a tag `ollama list`
+  actually shows. `think: false` is set deliberately — with a reasoning model like
+  qwen3.6, leaving thinking on spends most of the time and tokens on a thinking
+  pass this extraction task doesn't need.
+
+Set `llm.enabled: false` to skip the LLM entirely and use regex-only extraction.
+
+**Hallucination guard:** an extracted funding rate is discarded unless that exact
+number actually appears next to a `%`/"Prozent" in the scraped text. An invented
+rate would be worse than a blank one — a blank gets flagged as "not detected" for
+manual review, while a made-up number looks like a real answer. Local models are
+also non-deterministic, so repeated runs of the same document can differ; treat
+the LLM-filled columns as a strong hint, not as verified fact.
 
 ## Secrets (`config.local.yaml`)
 
@@ -61,12 +86,14 @@ the keys you want to override, e.g.:
 ```yaml
 gov_bekanntmachungen:
   brave_api_key: "..."
-gemini:
-  api_key: "..."
+llm:
+  gemini:
+    api_key: "..."
 ```
 
 It's deep-merged on top of `config.yaml` at load time — see
-[fue_monitoring/config.py](fue_monitoring/config.py).
+[fue_monitoring/config.py](fue_monitoring/config.py). The `ollama` backend needs
+nothing here, since it uses no credentials.
 
 ## Setup
 

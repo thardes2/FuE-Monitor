@@ -39,7 +39,7 @@ def _context_text(link_tag) -> str:
     return link_tag.get_text(" ", strip=True)
 
 
-def _parse_html_file(path: Path, keywords: list[str], gemini_api_key: str, gemini_model: str) -> list[FundingCall]:
+def _parse_html_file(path: Path, keywords: list[str], llm_config: dict | None) -> list[FundingCall]:
     soup = BeautifulSoup(path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
     entries: dict[str, FundingCall] = {}
 
@@ -53,15 +53,18 @@ def _parse_html_file(path: Path, keywords: list[str], gemini_api_key: str, gemin
             continue
 
         context = _context_text(a)
-        funding_rate, funding_rate_percent = extract_funding_rate(context)
+        # See gov_bekanntmachungen: the blind "first percentage in the text"
+        # fallback is only worth having when there's no LLM to judge better.
+        funding_rate, funding_rate_percent = extract_funding_rate(context, fallback_to_any_percentage=not llm_config)
         deadline = extract_deadline(context)
 
-        if gemini_api_key:
-            llm_result = llm_extract.extract(context, title, gemini_api_key, gemini_model)
+        if llm_config:
+            llm_result = llm_extract.extract(context, title, llm_config)
             title, funding_rate, funding_rate_percent, deadline = llm_extract.merge(
                 llm_result, title, funding_rate, funding_rate_percent, deadline
             )
-            time.sleep(1)  # stay well under the free-tier requests-per-minute limit
+            if llm_config.get("backend") == "gemini":
+                time.sleep(1)  # stay well under the free-tier requests-per-minute limit
 
         found_keywords = matched_keywords(f"{title} {context}", keywords)
 
@@ -86,14 +89,14 @@ def _parse_html_file(path: Path, keywords: list[str], gemini_api_key: str, gemin
     return list(entries.values())
 
 
-def fetch(input_dir: str, keywords: list[str], gemini_api_key: str = "", gemini_model: str = "") -> list[FundingCall]:
+def fetch(input_dir: str, keywords: list[str], llm_config: dict | None = None) -> list[FundingCall]:
     directory = Path(input_dir)
     if not directory.exists():
         return []
 
     results: dict[str, FundingCall] = {}
     for path in sorted(directory.glob("*.htm*")):
-        for entry in _parse_html_file(path, keywords, gemini_api_key, gemini_model):
+        for entry in _parse_html_file(path, keywords, llm_config):
             results[entry.dedup_key] = entry
 
     return list(results.values())
