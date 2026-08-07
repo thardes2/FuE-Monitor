@@ -28,6 +28,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .. import llm_extract
+from ..cache import PageCache
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
 
@@ -51,20 +52,29 @@ def _canonical(url: str) -> str:
     return url.split("?", 1)[0].split("#", 1)[0]
 
 
-def _brave_urls(keyword: str, site: str, link_marker: str, api_key: str, max_results: int) -> list[str]:
-    headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
-    params = {"q": f"site:{site} {keyword}", "count": min(max_results, 20)}
-    resp = requests.get(BRAVE_SEARCH_URL, headers=headers, params=params, timeout=30)
-    if resp.status_code != 200:
-        print(f"    Brave search failed for '{keyword}' on {site}: {resp.text[:200]}")
-        return []
+def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_results: int, pages: int = 1) -> list[str]:
+    """Announcement URLs Brave knows for `term` on `site`, across `pages` result pages.
 
-    data = resp.json()
-    return [
-        item["url"]
-        for item in data.get("web", {}).get("results", [])
-        if link_marker in item.get("url", "")
-    ]
+    Brave caps a page at 20 results and the offset at 9, and only some results on
+    any page are announcements, so a single page is a thin sample — that thinness
+    is why an announcement can silently drop out of a run when the ranking shifts.
+    """
+    headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
+    urls: list[str] = []
+
+    for offset in range(max(pages, 1)):
+        params = {"q": f"site:{site} {term}", "count": min(max_results, 20), "offset": offset}
+        resp = requests.get(BRAVE_SEARCH_URL, headers=headers, params=params, timeout=30)
+        if resp.status_code != 200:
+            print(f"    Brave search failed for '{term}' on {site}: {resp.text[:200]}")
+            break
+
+        results = resp.json().get("web", {}).get("results", [])
+        urls += [item["url"] for item in results if link_marker in item.get("url", "")]
+        if not results:
+            break
+
+    return urls
 
 
 def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
@@ -89,7 +99,12 @@ def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
-def _fetch_announcement(url: str, keywords: list[str], llm_config: dict | None) -> FundingCall | None:
+def _download_and_extract(url: str, llm_config: dict | None) -> dict | None:
+    """The expensive half: one HTTP request plus (optionally) one LLM call.
+
+    Split out from building the FundingCall so the cache can skip exactly this
+    part while keyword matching still runs fresh on every run.
+    """
     try:
         resp = requests.get(url, headers=HEADERS, timeout=30)
     except requests.exceptions.RequestException as exc:
@@ -118,7 +133,22 @@ def _fetch_announcement(url: str, keywords: list[str], llm_config: dict | None) 
             llm_result, title, funding_rate, funding_rate_percent, deadline
         )
 
-    found_keywords = matched_keywords(f"{title} {text}", keywords)
+    return {
+        "text": text,
+        "title": title,
+        "funding_rate": funding_rate,
+        "funding_rate_percent": funding_rate_percent,
+        "deadline": deadline,
+    }
+
+
+def _build_call(url: str, data: dict, keywords: list[str]) -> FundingCall:
+    title = data["title"]
+    funding_rate = data["funding_rate"]
+    deadline = data["deadline"]
+    funding_rate_percent = data["funding_rate_percent"]
+
+    found_keywords = matched_keywords(f"{title} {data['text']}", keywords)
 
     notes = []
     if not funding_rate:
@@ -143,6 +173,7 @@ def fetch(
     keywords: list[str],
     brave_api_key: str,
     llm_config: dict | None,
+    cache: PageCache | None = None,
 ) -> list[FundingCall]:
     name = source_config["name"]
     discovery = source_config["discovery"]
@@ -154,13 +185,18 @@ def fetch(
         if not brave_api_key:
             print(f"  ({name}: brave_api_key not set, skipping this source)")
             return []
-        for keyword in keywords:
+        # Two complementary query sets, because neither alone is complete:
+        # generic terms enumerate broadly but rank a niche call out of reach, while
+        # the user's keywords surface exactly those niche calls. Verified case: a
+        # "KI in Wertschöpfungsketten" call that only the keyword query found.
+        for term in list(source_config.get("discovery_terms", [])) + list(keywords):
             for url in _brave_urls(
-                keyword,
+                term,
                 source_config["search_site"],
                 link_marker,
                 brave_api_key,
-                source_config.get("max_results_per_keyword", 10),
+                source_config.get("max_results_per_keyword", 20),
+                source_config.get("search_pages", 1),
             ):
                 urls.setdefault(_canonical(url), None)
     elif discovery == "listing":
@@ -170,12 +206,32 @@ def fetch(
         raise ValueError(f"Unknown discovery mode '{discovery}' for source '{name}'")
 
     entries: dict[str, FundingCall] = {}
-    for i, url in enumerate(urls):
-        if i > 0:
-            time.sleep(crawl_delay)
-        entry = _fetch_announcement(url, keywords, llm_config)
-        if entry is not None:
-            entry.source = name
-            entries[entry.dedup_key] = entry
+    downloaded = 0
+    for url in urls:
+        data = cache.get(url) if cache else None
 
+        if data is None:
+            # The crawl delay only has to separate actual requests to the site, so
+            # cache hits mustn't be slowed down by it.
+            if downloaded > 0:
+                time.sleep(crawl_delay)
+            data = _download_and_extract(url, llm_config)
+            downloaded += 1
+            if data is None:
+                continue
+            if cache:
+                cache.put(
+                    url,
+                    data["text"],
+                    data["title"],
+                    data["funding_rate"],
+                    data["funding_rate_percent"],
+                    data["deadline"],
+                )
+
+        entry = _build_call(url, data, keywords)
+        entry.source = name
+        entries[entry.dedup_key] = entry
+
+    print(f"  ({name}: {len(urls)} announcements discovered, {downloaded} newly downloaded, {len(urls) - downloaded} from cache)")
     return list(entries.values())

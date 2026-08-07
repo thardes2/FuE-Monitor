@@ -27,8 +27,19 @@ rate and deadline, and writes the result to an Excel file.
       Leave it empty to skip `brave`-mode sources; `listing`-mode sources still
       work without it.
 
+  A `brave`-mode source searches **two** query sets and takes the union:
+  `discovery_terms` (generic words like "Bekanntmachung"/"Förderrichtlinie", which
+  enumerate broadly) plus your own `keywords` (which surface niche calls the
+  generic terms rank out of reach). Neither alone is complete — measured on
+  bmftr.bund.de: generic terms found ~65 announcements but missed a "KI in
+  Wertschöpfungsketten" call that only a keyword query returned. Each term is
+  paged through `search_pages` result pages, since Brave caps a page at 20 results
+  and only some of them are announcements. Without this breadth, an announcement
+  can silently drop out between runs when Brave's ranking shifts.
+
   Each `brave`-mode source respects its own robots.txt `Crawl-delay` between page
-  fetches, so a run with several hits from those sources takes longer.
+  fetches. That makes a cold run slow (~1.5 h for ~110 announcements at 30 s each
+  plus an LLM call), which is what the cache below is for.
 
   Adding a new ministry/agency: check its robots.txt first (which paths, if any,
   are disallowed, and its `Crawl-delay`), find its announcement listing page (or
@@ -76,6 +87,21 @@ rate would be worse than a blank one — a blank gets flagged as "not detected" 
 manual review, while a made-up number looks like a real answer. Local models are
 also non-deterministic, so repeated runs of the same document can differ; treat
 the LLM-filled columns as a strong hint, not as verified fact.
+
+## Cache
+
+Announcement pages are static documents, but each uncached one costs its site's
+robots.txt `Crawl-delay` plus an LLM call — so the first broad run takes about
+1.5 hours, and almost all of that would be repeated on every subsequent run.
+[cache.py](fue_monitoring/cache.py) stores fetched pages in `cache/pages.json`
+(gitignored), which brings a follow-up run down to ~3 minutes: measured 100 of
+102 announcements served from cache, only genuinely new ones downloaded.
+
+Cached are the page text and the extracted fields, deliberately **not** the
+keyword matches — those are recomputed every run, so editing `keywords` takes
+effect immediately without invalidating the cache. Entries expire after
+`cache.max_age_days`; delete `cache/pages.json` to force a full refresh (needed
+if you change the LLM prompt or model, since extracted values are cached).
 
 ## Secrets (`config.local.yaml`)
 

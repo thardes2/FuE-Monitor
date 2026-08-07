@@ -92,7 +92,19 @@ gov_bekanntmachungen:
       # ".../SharedDocs/Bekanntmachungen/DE/2026/07/2026-07-08-foo.html" are
       # actual announcements — this substring is what picks those out.
       link_path_marker: "/SharedDocs/Bekanntmachungen/"
-      max_results_per_keyword: 10
+      # discovery_terms are searched IN ADDITION to your keywords above, because
+      # neither set alone finds everything: generic terms enumerate broadly (~65
+      # announcements) but rank niche calls out of reach, while your keywords
+      # surface exactly those niche calls. Measured case: a "KI in
+      # Wertschöpfungsketten" call that only the keyword query ever returned.
+      discovery_terms:
+        - "Bekanntmachung"
+        - "Förderrichtlinie"
+        - "Förderaufruf"
+      # Per search term: results per page (Brave's max is 20) and how many pages
+      # to page through (Brave's offset caps at 9, so at most 10).
+      max_results_per_keyword: 20
+      search_pages: 3
       crawl_delay: 30 # bmftr.bund.de's robots.txt specifies Crawl-delay: 30
 
     - name: "BLE (Bundesanstalt für Landwirtschaft und Ernährung)"
@@ -161,6 +173,18 @@ llm:
     # that fits the model in memory, but a cold start or slower hardware can take
     # considerably longer, hence the generous default.
     timeout: 300
+
+cache:
+  # Announcement pages are static documents, but each uncached one costs its
+  # site's robots.txt Crawl-delay (30s for bmftr.bund.de) plus an LLM call — so a
+  # broad run without this takes about an hour, and nearly all of that is re-doing
+  # work. With the cache only genuinely new announcements cost anything.
+  # Cached are the page text and the extracted fields, NOT the keyword matches:
+  # those are recomputed every run, so editing `keywords` takes effect right away.
+  # Delete the file below to force a full refresh.
+  enabled: true
+  path: "cache/pages.json"
+  max_age_days: 30
 
 output:
   path: "output/funding_calls.xlsx"

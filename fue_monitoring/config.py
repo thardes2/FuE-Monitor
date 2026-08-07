@@ -37,4 +37,5 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> dict:
     config["_base_dir"] = base_dir
     config["manual_import"]["input_dir"] = str(base_dir / config["manual_import"]["input_dir"])
     config["output"]["path"] = str(base_dir / config["output"]["path"])
+    config["cache"]["path"] = str(base_dir / config["cache"]["path"])
     return config

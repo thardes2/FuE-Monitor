@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from . import llm_extract
+from .cache import PageCache
 from .config import load_config
 from .export import write_excel
 from .filters import deadline_ok, deadline_status, funding_rate_ok, matched_keywords
@@ -37,9 +38,20 @@ def collect(config: dict) -> list[FundingCall]:
 
     if config["gov_bekanntmachungen"]["enabled"]:
         brave_api_key = config["gov_bekanntmachungen"]["brave_api_key"]
-        for source_config in config["gov_bekanntmachungen"]["sources"]:
-            print(f"Searching {source_config['name']} ...")
-            entries += gov_bekanntmachungen.fetch(source_config, keywords, brave_api_key, llm_config)
+        cache = PageCache(
+            config["cache"]["path"],
+            max_age_days=config["cache"]["max_age_days"],
+            enabled=config["cache"]["enabled"],
+        )
+        try:
+            for source_config in config["gov_bekanntmachungen"]["sources"]:
+                print(f"Searching {source_config['name']} ...")
+                entries += gov_bekanntmachungen.fetch(
+                    source_config, keywords, brave_api_key, llm_config, cache
+                )
+        finally:
+            # Saved even if a source blows up, so a long run's downloads aren't lost.
+            cache.save()
 
     return entries
 
