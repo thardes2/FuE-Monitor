@@ -9,7 +9,16 @@
 # foerderdatenbank.de) describe programmes in German, so German search terms
 # match far more reliably than English ones.
 keywords:
-  - "Mikroelektronik"
+  - "Landwirtschaft"
+  - "Infrastruktur"
+  - "5G"
+  - "Satellit"
+  - "6G"
+  - "Mobilität"
+  - " KI"
+  - "Digitaler Zwilling"
+  - "Energieerzeugung"
+  
 
 # Minimum funding rate in percent. Calls with a detected rate below this value
 # are dropped. Entries where no rate could be detected are kept and marked as
@@ -173,6 +182,35 @@ llm:
     # that fits the model in memory, but a cold start or slower hardware can take
     # considerably longer, hence the generous default.
     timeout: 300
+
+review:
+  # So you don't have to work through the whole table again on every run: the
+  # Excel's first column, "Review", is yours to write in. Pick "not relevant"
+  # (or any value listed under dismissed_values) next to a call you've assessed
+  # and don't want to see again — the next run remembers it, matched by the
+  # call's link, and leaves the row out entirely while hide_dismissed is on.
+  #
+  # Any OTHER text you write there ("applied", "asking the department", ...) is
+  # kept and shown, so the column doubles as a notes field. An empty Review cell
+  # is what "not looked at yet" looks like.
+  #
+  # These values also become the dropdown offered in that column. Editing this
+  # list changes the dropdown — but renaming a value orphans marks already made
+  # with the old wording, and those rows come back. To rename cleanly, change the
+  # wording in BOTH the Excel's Review column and state_path: the Excel wins on
+  # every run, so editing only the JSON gets overwritten right back.
+  #
+  # Marks are also mirrored into state_path, because the Excel gets overwritten
+  # on every run — that file is what makes them survive a deleted or moved
+  # spreadsheet. Delete it (and clear the column) to start over.
+  enabled: true
+  state_path: "state/review.json"
+  hide_dismissed: true
+  dismissed_values:
+    - "not relevant"
+    - "done"
+    - "no"
+    - "x"
 
 cache:
   # Announcement pages are static documents, but each uncached one costs its

@@ -88,6 +88,35 @@ manual review, while a made-up number looks like a real answer. Local models are
 also non-deterministic, so repeated runs of the same document can differ; treat
 the LLM-filled columns as a strong hint, not as verified fact.
 
+## Marking calls as dealt with
+
+The point of the **Review** column (first column of the Excel) is that you don't
+have to work through the whole table again on every run. Pick `not relevant`
+next to a call you've assessed and don't want to see again — the next run
+remembers it, matched by the call's link, and leaves the row out entirely.
+
+- The column has a **dropdown** offering the values from `review.dismissed_values`
+  (default: `not relevant`, `done`, `no`, `x`), matched case-insensitively. The
+  options live on a hidden `ReviewOptions` sheet, so long values or ones
+  containing a comma work fine (an inline Excel list would break on both).
+- The dropdown does **not** restrict input — you can still type anything. Other
+  text (`applied`, `asking the department`, …) is kept and stays visible, so the
+  column doubles as a notes field. That's why validation is added without an error
+  message; making the list strict would take the notes function away.
+- Renaming a value in `dismissed_values` orphans marks already made with the old
+  wording — those rows reappear. Fixing this means editing the wording in **both**
+  the Excel's Review column and `state/review.json`: the Excel wins on every run
+  (it's what you last typed), so changing only the JSON gets overwritten straight
+  back. Keeping the old wording in the list alongside the new one also works.
+- An **empty** Review cell is what "not looked at yet" means. Each run prints how
+  many of those are left.
+- Set `review.hide_dismissed: false` to keep dismissed rows in the table instead
+  of leaving them out.
+
+Marks are mirrored into `state/review.json` (gitignored), because the Excel is
+overwritten on every run — that file is what makes them survive a deleted, moved
+or renamed spreadsheet. Delete it (and clear the column) to start over.
+
 ## Cache
 
 Announcement pages are static documents, but each uncached one costs its site's

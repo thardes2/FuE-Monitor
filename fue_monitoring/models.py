@@ -20,6 +20,8 @@ class FundingCall:
     link: str = ""
     matched_keywords: list[str] = field(default_factory=list)
     note: str = ""
+    # Yours to fill in inside the Excel; carried across runs by review.py.
+    review: str = ""
 
     @property
     def dedup_key(self) -> str:

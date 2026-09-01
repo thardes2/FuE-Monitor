@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from . import llm_extract
+from . import llm_extract, review
 from .cache import PageCache
 from .config import load_config
 from .export import write_excel
@@ -85,9 +85,33 @@ def main() -> None:
     config = load_config()
     entries = collect(config)
     filtered = apply_filters(entries, config)
-    write_excel(filtered, config["output"]["path"])
+
+    review_config = config["review"]
+    # Reads your marks out of the existing Excel before write_excel overwrites it,
+    # and persists them before writing, so nothing is lost if that write fails.
+    state = review.ReviewState(
+        review_config["state_path"], config["output"]["path"], enabled=review_config["enabled"]
+    )
+    state.apply(filtered)
+    state.save()
+
+    hidden = 0
+    if review_config["enabled"] and review_config["hide_dismissed"]:
+        kept = [e for e in filtered if not review.is_dismissed(e.review, review_config["dismissed_values"])]
+        hidden = len(filtered) - len(kept)
+        filtered = kept
+
+    write_excel(
+        filtered,
+        config["output"]["path"],
+        review_options=review_config["dismissed_values"] if review_config["enabled"] else None,
+    )
 
     print(f"\n{len(filtered)} of {len(entries)} found funding calls match the filter criteria.")
+    if hidden:
+        print(f"({hidden} already marked as dealt with and left out — see the 'Review' column.)")
+    unreviewed = sum(1 for e in filtered if not e.review)
+    print(f"{unreviewed} of them not looked at yet (empty 'Review' cell).")
     print(f"Output written to: {config['output']['path']}")
 
 
