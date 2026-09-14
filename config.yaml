@@ -174,7 +174,7 @@ llm:
   ollama:
     base_url: "http://localhost:11434"
     # Must match a model the local instance actually has (see "ollama list").
-    model: "qwen3.6:latest"
+    model: "qwen3.8:latest"
     # qwen3.6 is a reasoning model; leaving thinking on makes it spend most of its
     # time and tokens on a thinking pass this extraction task doesn't need.
     think: false
