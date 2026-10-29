@@ -15,18 +15,30 @@
 # single fixed date (DD.MM.YYYY).
 
 programme:
-  - titel: "DNS der zukunftsfähigen Mobilität"
-    programm: "BMWE — Digitale Netze und Sicherheit / Mobilität"
-    link: "https://www.bundeswirtschaftsministerium.de/Navigation/DE/Service/Ausschreibungen/ausschreibungen.html"
-    projekttraeger: "TÜV Rheinland"
+  - titel: "DNS der zukunftsfähigen Mobilität. Digital – Nachhaltig – Systemfähig"
+    programm: "BMWE — Neue Fahrzeug- und Systemtechnologien"
+    link: "https://www.foerderdatenbank.de/FDB/Content/DE/Foerderprogramm/Bund/BMWi/dns-zukunftsfaehige-mobilitaet.html"
+    projekttraeger: "TÜV Rheinland Forschungs- und Innovationsmanagement GmbH (PT Bodengebundene Verkehrstechnologien)"
     stichtage_wiederkehrend:
       - "31.03."
       - "30.09."
     gueltig_bis: "30.06.2027"
     beschreibung: >
-      Förderrichtlinie des BMWE zur DNS der zukunftsfähigen Mobilität.
-      Projektskizzen können zu den Stichtagen 31. März und 30. September
-      eingereicht werden. Die Förderrichtlinie läuft bis zum 30. Juni 2027.
-      Projektträger ist der TÜV Rheinland.
-      Hinweis: Dieser Eintrag wird manuell gepflegt, da die Seite des BMWE
-      automatisiert nicht abrufbar ist — Details bitte beim Projektträger prüfen.
+      Förderrichtlinie des BMWE zur Förderung von Forschungs- und
+      Entwicklungsprojekten im Programm „DNS der zukunftsfähigen Mobilität.
+      Digital – Nachhaltig – Systemfähig“. Nachfolgerin der Bekanntmachung
+      „Neue Fahrzeug- und Systemtechnologien“, in Kraft seit 15. Dezember 2024.
+      Gefördert werden vorwettbewerbliche Verbundvorhaben der Fahrzeug- und
+      Systemtechnologien für den bodengebundenen Verkehr: automatisiertes und
+      vernetztes Fahren, Fahrzeugsicherheit und Absicherung, Software und
+      Elektronik im Fahrzeug, Antriebs- und Energiesysteme, Digitalisierung und
+      Künstliche Intelligenz in Fahrzeug und Verkehr, Simulation, Test und
+      Validierung sowie Produktionstechnologien für die Mobilität.
+      Projektskizzen können laufend eingereicht werden; bewertet werden sie zu
+      den Stichtagen 31. März und 30. September. Das Verfahren ist zweistufig
+      (Projektskizze, nach Aufforderung förmlicher Förderantrag). Die
+      Förderrichtlinie gilt bis zum 30. Juni 2027.
+      Hinweis: Dieser Eintrag wird von Hand gepflegt, weil die BMWE-Seite
+      automatisiert nicht abrufbar ist. Verbindlich sind die Richtlinie im
+      Bundesanzeiger und die Angaben des Projektträgers; Quellen im Netz nennen
+      für den Projektträger teils die TÜV Rheinland Consulting GmbH.

@@ -76,17 +76,46 @@ def test_hits_carry_their_weights():
 # --- exclusions ------------------------------------------------------------
 
 
-def test_exclusion_blocks_even_with_topic_hits():
+def test_exclusion_in_the_title_blocks_even_with_topic_hits():
     p = profile(ausschluss=["Medizinprodukt*"])
-    result = matching.prefilter(call("KI für Medizinprodukte"), p)
+    result = matching.prefilter(call("KI", title="Förderung von KI für Medizinprodukte"), p)
     assert not result.passed
     assert result.excluded_by == "Medizinprodukt*"
 
 
+def test_an_exclusion_in_the_programme_name_blocks_too():
+    p = profile(ausschluss=["Wehrtechnik*"])
+    entry = call("KI", title="Verbundforschung")
+    entry.programme = "Wehrtechnik und zivile Sicherheit"
+    assert not matching.prefilter(entry, p).passed
+
+
+def test_a_calls_own_disclaimer_does_not_exclude_it():
+    """The decisive case. German announcements routinely say in their boilerplate
+    what is *not* funded — "Vorhaben der Wehrtechnik sind von der Förderung
+    ausgeschlossen". Matching exclusions against the full text turned that sentence
+    into a reason to drop the call, which is the opposite of what it says: the call
+    is agreeing with the company, not conflicting with it."""
+    p = profile(ausschluss=["Wehrtechnik*"])
+    entry = call(
+        "Gefördert werden Vorhaben zur KI-basierten Simulation. "
+        "Vorhaben der Wehrtechnik sind von der Förderung ausgeschlossen.",
+        title="Förderung von KI-Methoden",
+    )
+    assert matching.prefilter(entry, p).passed, "the disclaimer must not drop the call"
+
+
 def test_exclusion_respects_word_boundaries():
     p = profile(ausschluss=["Wehr"])
-    assert matching.prefilter(call("KI in der Wehrtechnik"), p).passed  # "Wehr" != "Wehrtechnik"
-    assert not matching.prefilter(call("KI für die Wehr"), p).passed
+    assert matching.prefilter(call("KI", title="KI in der Wehrtechnik"), p).passed  # "Wehr" != "Wehrtechnik"
+    assert not matching.prefilter(call("KI", title="KI für die Wehr"), p).passed
+
+
+def test_the_exclusions_reach_the_evaluation_prompt():
+    """Narrowing the prefilter only works if the evaluation picks the slack up —
+    otherwise an exclusion buried in the text stops being honoured at all."""
+    assert "{ausschluss}" in matching.PROMPT_TEMPLATE
+    assert "Will not work on" in matching.PROMPT_TEMPLATE
 
 
 # --- quote verification ----------------------------------------------------
@@ -306,3 +335,32 @@ def test_local_backend_runs_everything_regardless_of_consent():
 def test_no_profile_consents_leaves_nothing_to_run():
     runnable, skipped = matching.permitted_profiles([consenting(False)], {"backend": "gemini"})
     assert runnable == [] and len(skipped) == 1
+
+
+# --- wildcards -------------------------------------------------------------
+
+
+def test_a_leading_wildcard_matches_the_tail_of_a_compound():
+    """Regression: "*absicherung*" was escaped into a literal asterisk, so it matched
+    nothing at all — and said nothing about it."""
+    assert matching.theme_pattern("*absicherung*").search("Fahrzeugabsicherung und Test")
+
+
+def test_a_leading_wildcard_alone_still_anchors_the_end():
+    assert matching.theme_pattern("*absicherung").search("Fahrzeugabsicherung")
+    assert not matching.theme_pattern("*absicherung").search("Absicherungsstrategie")
+
+
+def test_a_trailing_wildcard_still_works_as_before():
+    assert matching.theme_pattern("Mobilität*").search("Mobilitätskonzept")
+    assert not matching.theme_pattern("Mobilität").search("Mobilitätskonzept")
+
+
+def test_a_bare_acronym_stays_strict():
+    """The whole reason short terms don't get implicit prefix matching."""
+    assert not matching.theme_pattern("KI").search("Kinderbetreuung")
+    assert matching.theme_pattern("KI").search("Einsatz von KI im Betrieb")
+
+
+def test_a_wildcard_term_finds_itself_standalone():
+    assert matching.theme_pattern("*absicherung*").search("Die Absicherung erfolgt später")

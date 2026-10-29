@@ -34,7 +34,7 @@ from .profiles import Profile
 
 # Bump when the prompt or schema changes so cached evaluations from the old
 # wording don't get reused.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 # Far below llm_extract's 200k. Measured against qwen3.8 on the configured host:
 # the same announcement costs ~24 s at 20k characters and ~85 s at 98k, and one
@@ -66,6 +66,7 @@ Name: {name}
 Size: {groesse}   (kmu = SME under the EU definition, grossunternehmen = large enterprise)
 Role: {rolle}
 Topics (weight 3 = core business, 1 = adjacent): {themen}
+Will not work on: {ausschluss}
 Preferred programmes: {programme}
 Will shoulder at most this own contribution: {eigenanteil}
 Prefiltered topic hits in this call: {treffer}
@@ -74,6 +75,10 @@ FIELDS
 - score: 0-100, how well this call fits THIS company. Weigh the topic weights: a hit on a
   weight-3 topic counts far more than one on a weight-1 topic. A call that merely mentions a
   topic in passing scores low; one whose actual subject is the company's core business scores high.
+  Score 0 if the call's actual subject is something under "Will not work on" above. Note the
+  difference: the call *funding* such work rules it out, whereas the call merely saying that such
+  work is excluded from funding does not — that is the call agreeing with the company, not a
+  conflict. Say which of the two it is in begruendung whenever one of those words appears.
 - begruendung: 2-3 sentences, German, why that score — name the concrete overlap or mismatch.
 - foerderfaehig: "ja", "nein" or "unklar" — whether THIS company may apply at all.
   Check the call for: restriction to SMEs or to large enterprises, a mandatory consortium
@@ -148,9 +153,16 @@ def theme_pattern(begriff: str) -> re.Pattern:
     noise this prefilter exists to remove.
     """
     term = begriff.strip()
-    if term.endswith("*"):
-        return re.compile(rf"\b{re.escape(term[:-1])}\w*", re.IGNORECASE)
-    return re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+    # A leading "*" matches the tail of a compound: "*absicherung*" finds
+    # "Fahrzeugabsicherung". Previously the "*" was escaped into a literal asterisk,
+    # so such a term matched nothing at all and said nothing about it.
+    leading = term.startswith("*")
+    trailing = term.endswith("*")
+    core = re.escape(term.strip("*"))
+
+    prefix = r"\w*" if leading else r"\b"
+    suffix = r"\w*" if trailing else r"\b"
+    return re.compile(rf"{prefix}{core}{suffix}", re.IGNORECASE)
 
 
 def find_terms(text: str, terms: list[str]) -> list[str]:
@@ -170,13 +182,26 @@ class PrefilterResult:
 
 
 def prefilter(call: FundingCall, profile: Profile) -> PrefilterResult:
-    text = f"{call.title} {call.text}"
+    """Decides cheaply whether this call is worth an LLM evaluation for this profile.
 
-    excluded = find_terms(text, profile.ausschluss)
+    Themes are matched against the whole text, because that is where a call's subject
+    actually shows — a Richtlinie's title rarely names everything it funds.
+
+    Hard exclusions are matched only against the title and programme name, which is
+    narrower on purpose. An announcement's boilerplate routinely mentions what is
+    *not* funded ("Vorhaben der Wehrtechnik sind ausgeschlossen"), and matching
+    exclusions against the full text turned such a sentence into a reason to drop the
+    call — the profile's exclusion term and the call's own disclaimer are
+    indistinguishable at this level. Anything subtler than the title is left to the
+    evaluation, which gets the exclusions as a criterion and can read the sentence
+    around them.
+    """
+    excluded = find_terms(f"{call.title} {call.programme}", profile.ausschluss)
     if excluded:
         return PrefilterResult(passed=False, excluded_by=excluded[0])
 
-    hits = [(t.begriff, t.gewicht) for t in profile.themen if theme_pattern(t.begriff).search(text)]
+    haystack = f"{call.title} {call.text}"
+    hits = [(t.begriff, t.gewicht) for t in profile.themen if theme_pattern(t.begriff).search(haystack)]
     return PrefilterResult(passed=bool(hits), hits=hits)
 
 
@@ -394,6 +419,9 @@ def evaluate(
         groesse=profile.groesse,
         rolle=profile.rolle or "—",
         themen=themen,
+        # The prefilter only screens title and programme for these, so the
+        # evaluation is where an exclusion buried in the text has to be caught.
+        ausschluss=", ".join(profile.ausschluss) or "—",
         programme=", ".join(profile.programme_bevorzugt) or "—",
         eigenanteil=f"{profile.eigenanteil_max_prozent:g} %" if profile.eigenanteil_max_prozent is not None else "—",
         treffer=", ".join(f"{b} ({g})" for b, g in hits) or "—",

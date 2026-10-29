@@ -261,12 +261,20 @@ def run_profiles(config: dict, only: str | None) -> None:
     try:
         for profile in loaded:
             print(f"\n--- {profile.name} ({profile.id}) ---")
+            # The profile's own threshold wins where it sets one; config.yaml's is
+            # the default for everyone who doesn't care.
+            min_score = (
+                profile.min_score if profile.min_score is not None
+                else profiles_config["min_score"]
+            )
+            if profile.min_score is not None:
+                print(f"  (min_score {min_score} from the profile)")
             matches = matching.match_profile(
                 candidates,
                 profile,
                 llm_config,
                 cache=cache,
-                min_score=profiles_config["min_score"],
+                min_score=min_score,
                 max_evaluations=profiles_config["max_evaluations_per_profile"],
                 max_text_chars=profiles_config["max_text_chars"],
             )

@@ -374,6 +374,24 @@ repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`), `rolle`,
 run rather than being skipped, because a silently skipped company is
 indistinguishable from one that simply had no matches.
 
+### Profile files are checked, not just read
+
+A key a profile file sets and nothing reads is **refused**, naming the offending
+keys and the supported ones. Both levels are checked, so a `gewichtung:` written
+where `gewicht:` belongs is caught too — it would otherwise fall back to weight 1
+and change how everything is scored for that company. Real notes go under
+`notizen:`, which is ignored on purpose.
+
+This exists because of a measured case: a `min_score: 40` sat in a profile file for
+days with no effect and no complaint, while the global `profiles.min_score` of 0
+quietly applied and the report kept listing zero-score calls. A warning would have
+been read once and then scrolled past; a refusal cannot be.
+
+`min_score` is now a profile field and overrides `profiles.min_score` from
+config.yaml where set. It is deliberately **not** part of the profile fingerprint:
+it decides what gets reported, not what a match means, so moving it costs no LLM
+calls — the evaluations are already cached.
+
 ### How matching works
 
 **Stage 1 — prefilter (free).** Profile terms are matched on **word boundaries**,
@@ -381,9 +399,21 @@ unlike the global keyword list which matches substrings. That difference is the
 point: `KI` as a substring also hits "Kinder" and "Kilometer", which is tolerable
 in a table you scan yourself but not in a report that goes to a company. A
 trailing `*` opts into German compounds — `Mobilität*` matches
-"Mobilitätskonzept", plain `Mobilität` only the standalone word. Terms under
-`ausschluss` drop a call outright, before any model sees it. The global keyword
-list is deliberately **not** applied here: a company's themes are its own.
+"Mobilitätskonzept", plain `Mobilität` only the standalone word — and a **leading**
+`*` matches the tail of one, so `*absicherung*` finds "Fahrzeugabsicherung". (It was
+previously escaped into a literal asterisk, so such a term matched nothing at all
+and said nothing about it.) The global keyword list is deliberately **not** applied
+here: a company's themes are its own.
+
+Terms under `ausschluss` drop a call outright, but are matched against the **title
+and programme name only** — deliberately narrower than the themes. German
+announcements routinely state in their boilerplate what is *not* funded ("Vorhaben
+der Wehrtechnik sind von der Förderung ausgeschlossen"), and matching exclusions
+against the full text turned that sentence into a reason to drop the call: the
+profile's exclusion term and the call's own disclaimer are indistinguishable at this
+level, though they mean opposite things. Anything subtler than the title is left to
+stage 2, which now receives the exclusions as a criterion and can read the sentence
+around them.
 
 **Stage 2 — LLM evaluation (one local inference per surviving call).** The model
 returns a fit score (0–100, weighted by your `gewicht`), a short German

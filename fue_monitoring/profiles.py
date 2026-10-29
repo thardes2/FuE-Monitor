@@ -24,6 +24,43 @@ import yaml
 
 VALID_SIZES = {"kmu", "grossunternehmen"}
 
+# Everything a profile file may contain. Anything else is refused, not warned about:
+# an unsupported key looks exactly like a supported one in YAML, and a "min_score: 40"
+# that nothing read produced a report full of zero-score calls in silence. A warning
+# would have been read once and then scrolled past, while the file kept claiming a
+# setting that had no effect — false confidence is the thing to prevent here.
+# "notizen" is the escape hatch for anything genuinely meant as a note.
+KNOWN_KEYS = frozenset({
+    "id", "name", "groesse", "rolle", "themen", "ausschluss", "programme_bevorzugt",
+    "eigenanteil_max_prozent", "sicp_ansprechpartner", "min_score", "cloud_erlaubt",
+    "notizen",
+})
+KNOWN_THEME_KEYS = frozenset({"begriff", "gewicht"})
+
+
+def _reject_unknown(raw: dict, source: str) -> None:
+    """Refuses keys nothing reads, at both levels a typo can hide in."""
+    unknown = sorted(set(raw) - KNOWN_KEYS)
+    if unknown:
+        raise ProfileError(
+            f"{source}: unknown key(s) {', '.join(unknown)}. Supported: "
+            f"{', '.join(sorted(KNOWN_KEYS))}. Put anything that is only a note "
+            f"under 'notizen:'."
+        )
+
+    for item in raw.get("themen") or []:
+        if not isinstance(item, dict):
+            continue
+        # A "gewichtung:" instead of "gewicht:" would fall back to weight 1 and
+        # quietly change how the LLM scores everything for this company.
+        stray = sorted(set(item) - KNOWN_THEME_KEYS)
+        if stray:
+            begriff = item.get("begriff", "?")
+            raise ProfileError(
+                f"{source}: unknown key(s) {', '.join(stray)} under the 'themen' "
+                f"entry {begriff!r}. Supported: {', '.join(sorted(KNOWN_THEME_KEYS))}."
+            )
+
 
 class ProfileError(ValueError):
     """A profile file is unusable — raised with the file name and what's wrong."""
@@ -46,6 +83,11 @@ class Profile:
     programme_bevorzugt: list[str] = field(default_factory=list)
     eigenanteil_max_prozent: float | None = None
     sicp_ansprechpartner: str = ""
+    # Lowest score this company wants to see, overriding profiles.min_score from
+    # config.yaml. None means "use the global setting". Deliberately not part of the
+    # hash: it decides what gets reported, not what a match means, so raising it must
+    # not throw away evaluations that were already paid for.
+    min_score: int | None = None
     # Opt-in: lets this profile's data go to the hosted llm.backend (e.g. Gemini).
     # Deliberately not part of the hash — it changes where inference runs, not what a match means.
     cloud_erlaubt: bool = False
@@ -71,6 +113,8 @@ def _parse(raw: dict, source: str) -> Profile:
         if not value or not str(value).strip():
             raise ProfileError(f"{source}: '{key}' is required")
         return str(value).strip()
+
+    _reject_unknown(raw, source)
 
     profile_id = require("id")
     if "/" in profile_id or profile_id != profile_id.strip():
@@ -106,6 +150,21 @@ def _parse(raw: dict, source: str) -> Profile:
         except (TypeError, ValueError):
             raise ProfileError(f"{source}: 'eigenanteil_max_prozent' must be a number")
 
+    min_score = raw.get("min_score")
+    if min_score is not None:
+        try:
+            # Via float first, so "40" is accepted while 4.7 is refused rather than
+            # silently truncated to 4 — a threshold quietly moved is the defect this
+            # whole field exists to fix.
+            as_number = float(min_score)
+        except (TypeError, ValueError):
+            raise ProfileError(f"{source}: 'min_score' must be a whole number")
+        if as_number != int(as_number):
+            raise ProfileError(f"{source}: 'min_score' must be a whole number, got {min_score!r}")
+        min_score = int(as_number)
+        if not 0 <= min_score <= 100:
+            raise ProfileError(f"{source}: 'min_score' must be between 0 and 100, got {min_score}")
+
     cloud = raw.get("cloud_erlaubt", False)
     if not isinstance(cloud, bool):
         raise ProfileError(f"{source}: 'cloud_erlaubt' must be true or false")
@@ -120,6 +179,7 @@ def _parse(raw: dict, source: str) -> Profile:
         programme_bevorzugt=[str(x).strip() for x in (raw.get("programme_bevorzugt") or []) if str(x).strip()],
         eigenanteil_max_prozent=eigenanteil,
         sicp_ansprechpartner=str(raw.get("sicp_ansprechpartner", "")).strip(),
+        min_score=min_score,
         cloud_erlaubt=cloud,
     )
 
