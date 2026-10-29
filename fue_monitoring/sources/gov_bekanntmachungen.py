@@ -22,12 +22,12 @@ elsewhere in this project.
 from __future__ import annotations
 
 import time
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
-from .. import llm_extract
+from .. import http, llm_extract
 from ..cache import PageCache
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
@@ -38,6 +38,14 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring; personal R&D funding monit
 # Spacing between back-to-back calls to a hosted LLM. Re-extractions aren't spaced
 # by the crawl delay the way downloads are, and an unthrottled sweep over a full
 # cache tripped 429s after a few dozen requests, while ~4 s apart ran clean.
+class ListingUnavailable(Exception):
+    """A source's listing page could not be read, so we know nothing about it.
+
+    Raised rather than returning an empty list, because "no announcements" and "we
+    could not look" must not reach the run summary as the same thing.
+    """
+
+
 HOSTED_LLM_DELAY_SECONDS = 4
 # How often a cached page may be re-extracted unsuccessfully before it is left
 # alone. Its recorded model otherwise never catches up with the configured one,
@@ -91,9 +99,15 @@ def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_result
 
     for offset in range(max(pages, 1)):
         params = {"q": f"site:{site} {term}", "count": min(max_results, 20), "offset": offset}
-        resp = requests.get(BRAVE_SEARCH_URL, headers=headers, params=params, timeout=30)
-        if resp.status_code != 200:
-            print(f"    Brave search failed for '{term}' on {site}: {resp.text[:200]}")
+        # Brave rate-limits by plan, and a 429 here would otherwise quietly shrink
+        # how much of a ministry we discover — the retry honours its Retry-After.
+        resp = http.get(
+            f"{BRAVE_SEARCH_URL}?{urlencode(params)}",
+            headers=headers, timeout=30, label=f"Brave search '{term}' on {site}",
+        )
+        if resp is None or resp.status_code != 200:
+            detail = f": {resp.text[:200]}" if resp is not None else ""
+            print(f"    Brave search failed for '{term}' on {site}{detail}")
             break
 
         results = resp.json().get("web", {}).get("results", [])
@@ -105,13 +119,14 @@ def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_result
 
 
 def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
-    try:
-        resp = requests.get(listing_url, headers=HEADERS, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        print(f"    could not fetch listing page {listing_url}: {exc}")
-        return []
+    # A failure here costs the whole source for this run, so it is worth the wait —
+    # measured: one reset on the first contact with ble.de reported the ministry as
+    # having published nothing at all.
+    resp = http.get(listing_url, headers=HEADERS, timeout=30, label=f"listing page {listing_url}")
+    if resp is None:
+        raise ListingUnavailable(listing_url)
     if resp.status_code != 200:
-        return []
+        raise ListingUnavailable(f"{listing_url} (HTTP {resp.status_code})")
 
     soup = BeautifulSoup(resp.text, "html.parser")
     # Some of these government CMS pages set a <base href> that changes how relative
@@ -123,7 +138,14 @@ def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
 
     main = _main_content(soup)
     urls = [urljoin(base_url, a["href"]) for a in main.find_all("a", href=True) if link_marker in a["href"]]
-    return list(dict.fromkeys(urls))
+
+    # Drop the listing page itself. Where the marker is a path the listing lives
+    # under — bmds.bund.de's "/service/bekanntmachungen/" is both — its own
+    # in-page anchors ("#", "#top") reduce to the listing URL and it would be
+    # fetched, LLM-evaluated and reported as an announcement of its own, carrying
+    # every real announcement's teaser text as its content.
+    own = _canonical(listing_url)
+    return list(dict.fromkeys(u for u in urls if _canonical(u) != own))
 
 
 def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) -> dict:
@@ -170,12 +192,8 @@ def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) ->
 
 def _download_and_extract(url: str, llm_config: dict | None) -> dict | None:
     """One HTTP request, then extraction over what came back."""
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        print(f"    could not fetch {url}: {exc}")
-        return None
-    if resp.status_code != 200:
+    resp = http.get(url, headers=HEADERS, timeout=30)
+    if resp is None or resp.status_code != 200:
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")

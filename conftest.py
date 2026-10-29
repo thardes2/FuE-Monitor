@@ -27,3 +27,16 @@ def config(tmp_path) -> dict:
             "review_state_template": str(tmp_path / "review_{profile}.json"),
         },
     }
+
+
+@pytest.fixture(autouse=True)
+def never_sleep_in_tests(monkeypatch):
+    """No test waits out a real backoff.
+
+    The HTTP helper retries with 3/9/27-second pauses; left alone, that turned a
+    0.3-second suite into 39 seconds, and a slow suite is a suite people stop
+    running.
+    """
+    import fue_monitoring.http
+
+    monkeypatch.setattr(fue_monitoring.http.time, "sleep", lambda seconds: None)

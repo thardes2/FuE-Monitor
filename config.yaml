@@ -136,6 +136,20 @@ gov_bekanntmachungen:
       link_path_marker: "/foerderrichtlinien/"
       crawl_delay: 5 # bmbfsfj.bund.de's robots.txt allows everything, no delay specified
 
+    - name: "BMDS (Digitales und Staatsmodernisierung) Bekanntmachungen"
+      discovery: listing
+      listing_url: "https://bmds.bund.de/service/bekanntmachungen/"
+      # Same path the listing itself lives under, which is unusual — the listing
+      # page's own "#"/"#top" anchors therefore reduce to the listing URL, and
+      # _listing_urls drops it for exactly that reason.
+      link_path_marker: "/service/bekanntmachungen/"
+      # Mixed content: Förderrichtlinien and Ausschreibungen sit next to
+      # Vergabebekanntmachungen (procurement — cleaning contracts, car leasing).
+      # Those are left in rather than filtered by title: profile matching scores
+      # them near zero anyway, and a title filter would be one more thing to get
+      # wrong when the ministry renames a category.
+      crawl_delay: 5 # bmds.bund.de's robots.txt disallows only /typo3/ and sets no delay
+
     # NOT bundeswirtschaftsministerium.de (BMWE/BMWK): every page on that domain,
     # including the plain homepage, redirects to validate.perfdrive.com — the same
     # Radware Bot Manager challenge foerderdatenbank.de uses. It's not a robots.txt
@@ -143,6 +157,61 @@ gov_bekanntmachungen:
     # the whole site, so this can't be a "listing" or "brave" source at all. If you
     # need BMWE calls, that'd have to go through the same manual-export route as
     # foerderdatenbank.de (see manual_import above).
+    #
+    # Checked 2026-10-29 as a way to get BMWE calls in anyway:
+    #  - energieforschung.de (BMWE's energy-research portal) IS crawlable, and
+    #    /de/foerderung/foerderangebote/ lists ~9 real Förderaufrufe. But each
+    #    detail page carries only ~6 kB of mostly navigation text; the call itself
+    #    is a linked PDF, which this connector doesn't read. It would add entries
+    #    with no deadline and no funding rate, which is worse than no entries.
+    #  - foerderzentrale.gov.de (the new federal funding portal) renders results
+    #    server-side and would be an ideal single source for several ministries,
+    #    but it held 6 programmes in total and ignored the search query. Worth
+    #    re-checking later.
+    #
+    # NOT bmi.bund.de (BMI): reachable and its robots.txt would allow it
+    # (Crawl-delay: 10, only /SiteGlobals/ and /DE/Service/ disallowed), but there
+    # is nothing to point a connector at. BMI publishes no announcement listing:
+    # its sitemap holds 460 pages with no funding index, and its funding content is
+    # press releases and PDFs. The R&D calls BMI co-funds are published as BMFTR
+    # Bekanntmachungen ("Forschung für die zivile Sicherheit"), which the BMFTR
+    # source above already collects.
+
+foerderinfo_newsletter:
+  # The way BMWE and BMI reach this monitor at all. BMWE's own site is behind a
+  # Radware bot-manager challenge and BMI publishes no announcement listing, but
+  # both appear in the Förderberatung des Bundes newsletter — which is also put on
+  # the web, under a path robots.txt allows.
+  #
+  # Each entry is a teaser, not a Förderrichtlinie: title, submission window,
+  # ministry, two sentences. The deadline is exact (it comes from the markup's own
+  # ISO datetime), but there is no funding rate in it.
+  #
+  # NOT used, though both would be easier: the newsletter as e-mail (the web issues
+  # hold the same content, so a mailbox buys nothing) and foerderinfo's RSS feeds
+  # and HTML announcement lists — those sit under /services/ and /SiteGlobals/,
+  # which this site's robots.txt disallows.
+  enabled: true
+  archive_url: "https://www.foerderinfo.bund.de/foerderinfo/de/news/newsletter/newsletter.html"
+  # The archive lists only the last three issues (~6 weeks), so issues already read
+  # are remembered here — otherwise an announcement would drop out of the reports as
+  # soon as its issue rotated off that page, deadline or not.
+  state_path: "state/foerderinfo_newsletter.json"
+  crawl_delay: 30 # foerderinfo.bund.de's robots.txt specifies Crawl-delay: 30
+
+  # A teaser links to the announcement itself, and the Bundesanzeiger — where every
+  # Förderrichtlinie is officially published — serves it as a PDF at a stable URL.
+  # Fetching that turns a two-sentence teaser into the full text: the funding rate
+  # the teaser never has, and enough substance for profile matching to judge the
+  # call on. Measured: 6–25 kB of clean text per document.
+  #
+  # An allowlist, not "follow every link": the teasers point at a dozen domains, and
+  # a host belongs here only after its robots.txt has been checked. Each PDF is
+  # downloaded once and then re-derived from the cached text, exactly like a scraped
+  # HTML page.
+  full_text_hosts:
+    - "www.bundesanzeiger.de" # robots.txt disallows only /nlp and /construction_page.html, no Crawl-delay
+  full_text_delay: 5 # no Crawl-delay is specified there; spaced out of courtesy
 
 llm:
   # Used to extract the funding rate / deadline from raw scraped text (BMFTR pages,

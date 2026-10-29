@@ -147,3 +147,49 @@ def test_re_extraction_against_a_local_backend_is_not_throttled(tmp_path, monkey
     _, _, _, sleeps = _gov_with_cached_pages(tmp_path, monkeypatch, urls, local)
 
     assert sleeps == []
+
+
+# --- discovery: the listing page is not one of its own announcements ------
+
+
+def test_the_listing_page_is_not_collected_as_an_announcement(monkeypatch):
+    """bmds.bund.de's marker "/service/bekanntmachungen/" is the path the listing
+    itself lives under, and its in-page anchors ("#", "#top") reduce to the listing
+    URL — so it would be fetched and reported as an announcement carrying every real
+    one's teaser text."""
+    from fue_monitoring.sources import gov_bekanntmachungen as gov
+
+    listing = "https://bmds.bund.de/service/bekanntmachungen/"
+    html = (
+        '<html><body><main>'
+        f'<a href="{listing}#">nach oben</a>'
+        f'<a href="{listing}#top">top</a>'
+        f'<a href="{listing}">Bekanntmachungen</a>'
+        f'<a href="{listing}foerderrichtlinie-digital-tech-to-product">Richtlinie</a>'
+        '</main></body></html>'
+    )
+
+    class Resp:
+        status_code = 200
+        text = html
+
+    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+
+    found = gov._listing_urls(listing, "/service/bekanntmachungen/")
+    assert found == [f"{listing}foerderrichtlinie-digital-tech-to-product"]
+
+
+def test_a_marker_that_does_not_match_the_listing_is_unaffected(monkeypatch):
+    """The existing sources rely on this: BLE's listing page doesn't contain its own
+    marker, and nothing about it should change."""
+    from fue_monitoring.sources import gov_bekanntmachungen as gov
+
+    listing = "https://www.ble.de/DE/Projektfoerderung/Bekanntmachungen/Bekanntmachungen_node.html"
+    target = "https://www.ble.de/DE/Projektfoerderung/Foerderungen-Auftraege/investiv_node.html"
+
+    class Resp:
+        status_code = 200
+        text = f'<html><body><main><a href="{target}">x</a></main></body></html>'
+
+    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+    assert gov._listing_urls(listing, "/Foerderungen-Auftraege/") == [target]

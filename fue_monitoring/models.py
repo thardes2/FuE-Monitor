@@ -34,4 +34,11 @@ class FundingCall:
 
     @property
     def dedup_key(self) -> str:
-        return self.link or self.title
+        """Identifies the announcement, not the URL it was reached by.
+
+        Uses the same canonicalisation as cross-source merging, so a source that
+        finds one announcement under two spellings collapses them the same way.
+        """
+        from .dedup import canonical_link
+
+        return canonical_link(self.link) or self.title

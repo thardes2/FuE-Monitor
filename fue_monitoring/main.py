@@ -6,18 +6,28 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import llm_extract, matching, profile_report, profiles as profiles_module, review
+from . import dedup, llm_extract, matching, profile_report, profiles as profiles_module, review
 from .cache import PageCache
 from .config import load_config
 from .export import write_excel
 from .filters import deadline_ok, deadline_status, funding_rate_ok, matched_keywords
 from .models import FundingCall
-from .sources import eu_portal, gov_bekanntmachungen, manual_import, static_programmes
+from .sources import (
+    eu_portal,
+    foerderinfo_newsletter,
+    gov_bekanntmachungen,
+    manual_import,
+    static_programmes,
+)
 
 
 def collect(config: dict) -> list[FundingCall]:
     keywords = config["keywords"]
     entries: list[FundingCall] = []
+    # Sources we could not read at all this run. Kept apart from sources that simply
+    # had nothing, because the two look identical in a per-source count and only one
+    # of them means the results are incomplete.
+    unreachable: list[str] = []
 
     if config["eu_portal"]["enabled"]:
         print("Querying EU Funding & Tenders Portal ...")
@@ -39,6 +49,20 @@ def collect(config: dict) -> list[FundingCall]:
         print("Reading manually saved funding-database pages ...")
         entries += manual_import.fetch(config["manual_import"]["input_dir"], keywords, llm_config)
 
+    if config.get("foerderinfo_newsletter", {}).get("enabled"):
+        print("Reading the Förderinfo newsletter ...")
+        newsletter_cache = PageCache(
+            config["cache"]["path"],
+            max_age_days=config["cache"]["max_age_days"],
+            enabled=config["cache"]["enabled"],
+        )
+        try:
+            entries += foerderinfo_newsletter.fetch(
+                config["foerderinfo_newsletter"], keywords, llm_config, newsletter_cache
+            )
+        finally:
+            newsletter_cache.save()
+
     if config["gov_bekanntmachungen"]["enabled"]:
         brave_api_key = config["gov_bekanntmachungen"]["brave_api_key"]
         cache = PageCache(
@@ -49,9 +73,14 @@ def collect(config: dict) -> list[FundingCall]:
         try:
             for source_config in config["gov_bekanntmachungen"]["sources"]:
                 print(f"Searching {source_config['name']} ...")
-                entries += gov_bekanntmachungen.fetch(
-                    source_config, keywords, brave_api_key, llm_config, cache
-                )
+                try:
+                    entries += gov_bekanntmachungen.fetch(
+                        source_config, keywords, brave_api_key, llm_config, cache
+                    )
+                except gov_bekanntmachungen.ListingUnavailable as exc:
+                    # Not fatal for the run, but it must not pass as "this ministry
+                    # published nothing" — collected and reported at the end.
+                    unreachable.append(f"{source_config['name']} ({exc})")
         finally:
             # Saved even if a source blows up, so a long run's downloads aren't lost.
             cache.save()
@@ -62,6 +91,21 @@ def collect(config: dict) -> list[FundingCall]:
         if static:
             print(f"Read {len(static)} hand-maintained programme(s) from the static catalogue.")
             entries += static
+
+    # Sources overlap: the Förderinfo newsletter links pages the ministry connectors
+    # also crawl (measured: 15 of 25). Merged here, once, so every consumer —
+    # the Excel and every profile report — sees one entry per announcement.
+    if unreachable:
+        print(f"\n!! {len(unreachable)} source(s) could not be read this run — "
+              "the results below are incomplete:")
+        for name in unreachable:
+            print(f"   - {name}")
+        print("   Re-run to pick them up; nothing about them is cached.\n")
+
+    before = len(entries)
+    entries = dedup.merge_duplicates(entries)
+    if before != len(entries):
+        print(f"{before - len(entries)} announcement(s) found by more than one source, merged.")
 
     return entries
 

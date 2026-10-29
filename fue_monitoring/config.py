@@ -40,6 +40,10 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> dict:
     config["cache"]["path"] = str(base_dir / config["cache"]["path"])
     config["review"]["state_path"] = str(base_dir / config["review"]["state_path"])
 
+    newsletter = config.get("foerderinfo_newsletter")
+    if newsletter:
+        newsletter["state_path"] = str(base_dir / newsletter["state_path"])
+
     profiles = config.get("profiles")
     if profiles:
         for key in ("directory", "output_dir", "static_catalogue", "cache_path"):

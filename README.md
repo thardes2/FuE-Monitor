@@ -13,7 +13,11 @@ rate and deadline, and writes the result to an Excel file.
   of two discovery modes:
     - `discovery: listing` – the site's own announcement listing page isn't
       disallowed, so we crawl it directly to find announcement links (e.g. BLE,
-      BMFSFJ).
+      BMFSFJ, BMDS). Where the marker is also the path the listing itself lives
+      under — bmds.bund.de's `/service/bekanntmachungen/` is both — the listing
+      page is skipped explicitly, or its own `#`/`#top` anchors would reduce to it
+      and it would be collected as an announcement carrying every real one's
+      teaser text.
     - `discovery: brave` – the site's listing/search page IS disallowed (e.g.
       bmftr.bund.de's `/SiteGlobals/` path), but individual announcement pages are
       allowed, so we use the Brave Search API (`site:` query) to find them instead
@@ -44,12 +48,152 @@ rate and deadline, and writes the result to an Excel file.
   Adding a new ministry/agency: check its robots.txt first (which paths, if any,
   are disallowed, and its `Crawl-delay`), find its announcement listing page (or
   confirm the listing page itself is disallowed, in which case use `brave` mode),
-  then add an entry to `gov_bekanntmachungen.sources`.
+  then add an entry to `gov_bekanntmachungen.sources`. Check one detail page's
+  text before committing to it: a site can be perfectly crawlable and still carry
+  nothing worth extracting, because the call itself is a linked PDF.
+
+  **Ministries checked and deliberately left out** — recorded so the same ground
+  isn't covered twice; the details sit in [config.yaml](config.yaml) next to the
+  sources:
+    - **BMWE** (`bundeswirtschaftsministerium.de`): every page, including the
+      homepage, redirects to a Radware bot-manager challenge. That is active
+      bot-detection on the whole site, not a robots.txt restriction a different
+      discovery mode could work around. Its energy-research portal
+      `energieforschung.de` *is* crawlable and lists ~9 real Förderaufrufe, but each
+      detail page is ~6 kB of mostly navigation with the actual call in a linked
+      PDF — entries with no deadline and no funding rate are worse than none. BMWE
+      calls therefore go through the same manual-export route as foerderdatenbank.de.
+    - **BMI** (`bmi.bund.de`): reachable, and its robots.txt would allow it
+      (`Crawl-delay: 10`, only `/SiteGlobals/` and `/DE/Service/` disallowed). There
+      is simply no announcement listing to point a connector at — its sitemap holds
+      460 pages with no funding index, and its funding content is press releases and
+      PDFs. The R&D calls BMI co-funds are published as BMFTR Bekanntmachungen
+      ("Forschung für die zivile Sicherheit"), which the BMFTR source already collects.
+    - **foerderzentrale.gov.de**, the new federal funding portal, renders results
+      server-side and would be an ideal single source for several ministries at once
+      — but it held 6 programmes in total and ignored the search query. Worth
+      re-checking later.
+- **Förderinfo newsletter** ([foerderinfo_newsletter.py](fue_monitoring/sources/foerderinfo_newsletter.py))
+  – the only route by which **BMWE and BMI** reach this monitor. Both are
+  unreachable directly (see below), but both appear in the newsletter the
+  Förderberatung „Forschung und Innovation" des Bundes publishes roughly
+  fortnightly — and that newsletter is also put on the web, under a path
+  robots.txt allows. Measured over three issues: 25 calls from 10 ministries,
+  4 of them BMWE (ZIM, IGF, Dekarbonisierung der Industrie).
+
+  Each entry is a teaser, not a Förderrichtlinie: title, submission window,
+  ministry, two sentences. The deadline is exact — it comes from the markup's own
+  ISO `datetime` attribute, so it needs neither regex nor an LLM. There is **no
+  funding rate**, and profile matching has to judge these on far less text than a
+  full announcement, which in practice means few of them clear a profile's theme
+  prefilter. Entries say so in their `note`.
+
+  Only `Bekanntmachung`, `Förderaufruf` and `Ausschreibung` teasers are collected;
+  `Termin` (events, prizes) and the untyped public-procurement ones are skipped,
+  and every skipped type is printed so a type we don't know yet gets noticed
+  rather than silently dropping announcements.
+
+  The archive page lists only the last three issues (~6 weeks), so issues already
+  read are remembered in `state/foerderinfo_newsletter.json` — otherwise a call
+  would vanish from the reports as soon as its issue rotated off that page, with
+  its deadline still months away. That also means a known issue is never fetched
+  twice, each fetch costing the site's 30 s crawl delay.
+
+  **The linked announcement is fetched where it may be.** A teaser links to the
+  document itself, and the Bundesanzeiger — where every Förderrichtlinie is
+  officially published — serves it as a **PDF** at a stable URL
+  (`/pub/publication/<id>/content/...`). Reading it turns a two-sentence teaser into
+  6–69 kB of real Richtlinie: the funding rate the teaser never carries, and enough
+  text for profile matching to judge the call on and to quote from. Measured on the
+  current issues: 9 of 25 calls, 3 of the 4 BMWE ones.
+
+  This runs off an **allowlist** (`full_text_hosts`), not "follow every link": the
+  teasers point at a dozen domains, and a host goes on that list only after its
+  robots.txt has been checked. Where the newsletter links an older bookmark URL
+  that lands on an HTML wrapper page, the PDF link is read off that page — one hop,
+  same host, never guessed from the id.
+
+  Each PDF is downloaded once into the page cache and then re-derived from the
+  stored text when the model or extraction prompt changes, exactly like a scraped
+  HTML page; a failed extraction is never cached. PDF layout breaks words across
+  lines (`For-\nschungs-`), which is undone — otherwise a profile looking for
+  "Forschung" never sees it, and a faithfully copied quote fails verification.
+  German compounds that legitimately end a line with a hyphen ("Forschungs- und
+  Entwicklungsvorhaben") keep it.
+
+  The deadline deliberately stays the **newsletter's**, which comes from a
+  structured `datetime` attribute naming the submission window; a date picked out
+  of a full document has been measured mistaking a Geltungsdauer for a deadline.
+  The document's own date is used only where the teaser had none.
+
+  **Not used, although both would be easier:** the newsletter as *e-mail* (the web
+  issues carry the same content, so a mailbox, credentials and MIME parsing would
+  buy nothing), and foerderinfo's RSS feeds and HTML announcement lists — those
+  sit under `/services/` and `/SiteGlobals/`, which this site's robots.txt
+  disallows. A site offering a feed for subscription doesn't lift its own
+  `Disallow`.
 - **German federal/state funding database** (foerderdatenbank.de, also covers NRW) –
   this site is protected by bot-detection and can't be queried automatically.
   Instead: search there in your browser, save the result page completely
   (Cmd+S → "complete webpage") and drop the `.html` file into the `input/` folder.
   It gets picked up automatically on the next run.
+
+## When a source can't be read
+
+Measured in one run: three `ConnectionResetError(54)` — twice bmds.bund.de, once
+ble.de — each on the **first and only** contact with that host, so our own request
+rate wasn't the cause. One of them hit a listing page, and the source then reported
+`0 announcements discovered`: indistinguishable, in the output, from a ministry that
+has published nothing. For a monitor that is the worst shape a failure can take,
+because nobody notices anything is missing.
+
+Two changes, in [http.py](fue_monitoring/http.py) and `collect()`:
+
+- **Page fetches retry** with 3/9/27-second pauses, on connection resets, timeouts
+  and on `429`/`502`/`503`/`504`. A `Retry-After` the server states is honoured when
+  it is 60 seconds or less; longer than that would stall every other source, so the
+  attempt is simply given up. A `404` is not retried — it won't become a `200` by
+  asking again. This covers the Brave search too, where a rate-limited query would
+  otherwise quietly shrink how much of a ministry gets discovered.
+- **A source that couldn't be read is named at the end of the run**, under a plain
+  statement that the results are incomplete. "We could not look" and "there is
+  nothing" are now different outcomes: an unreadable listing raises rather than
+  returning an empty list.
+
+Nothing about a failed fetch is cached, so re-running picks the source up.
+
+## One announcement, several sources
+
+Sources overlap. Measured on one run: 15 of 25 Förderinfo-newsletter entries point
+at pages the ministry connectors also crawl, so the same call reached the reports
+twice — once with the full announcement text, once as a two-sentence teaser, and
+sometimes with different deadlines. Each connector only ever deduplicated within
+itself.
+
+[dedup.py](fue_monitoring/dedup.py) merges them once, in `collect()`, so the Excel
+and every profile report see one entry per announcement. Merged rather than
+picked, because the sources know different things: a crawled page has the full text
+and the funding rate, a newsletter teaser has the ministry and a submission window
+from structured markup. The entry that saw more of the document becomes the base
+and the other fills its gaps; both source names are kept, so a report still says
+where a call was seen.
+
+Two rules are there because the obvious version was wrong:
+
+- **A query string is only dropped when it decorates.** `?nn=123`,
+  `?view=...`, a `jsessionid` and a framework's `?0` address the same page and are
+  ignored; everything else is kept. Stripping the whole query merged two distinct
+  BMWE Förderaufrufe — Modul 1 and Modul 2 of one programme — whose URLs differ
+  only in a `bookmark_id`. A live run caught that, not the unit tests.
+- **A framework document is never given a deadline by the other side.** A BMDS
+  Förderrichtlinie, correctly classified from its full text as taking no
+  applications, met its own teaser, whose date range is that Richtlinie's
+  Geltungsdauer. Filling the "missing" deadline from it reinstated precisely the
+  defect `submission_mode` exists to prevent.
+
+A title is used as the key only for entries that have no URL at all (manual
+imports, the static catalogue): two different calls can share a title, differing
+only in their model region, so it is too weak to merge on whenever a link exists.
 
 ## Extraction quality (funding rate / deadline)
 
