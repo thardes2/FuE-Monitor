@@ -88,7 +88,7 @@ def apply_filters(entries: list[FundingCall], config: dict, require_keywords: bo
 
         if not funding_rate_ok(entry.funding_rate_percent, min_rate):
             continue
-        if not deadline_ok(entry.deadline, open_only):
+        if not deadline_ok(entry.deadline, open_only, submission_mode=entry.submission_mode):
             continue
 
         entry.deadline_status = deadline_status(entry.deadline, warning_days)
@@ -203,6 +203,17 @@ def run_profiles(config: dict, only: str | None) -> None:
     candidates = apply_filters(entries, search_config, require_keywords=False)
     print(f"{len(candidates)} collected calls are open and available for matching.")
 
+    # Framework documents are kept out of the matching pool by apply_filters — nobody
+    # can apply to them — but listing them is still worth it: they announce the
+    # Förderaufrufe that will carry the real deadlines. Deduplicated by link, since
+    # the same document can be discovered through several search terms.
+    frameworks = list({
+        entry.link: entry for entry in entries
+        if entry.submission_mode == llm_extract.FRAMEWORK
+    }.values())
+    if frameworks:
+        print(f"{len(frameworks)} framework announcement(s) take no direct application.")
+
     try:
         for profile in loaded:
             print(f"\n--- {profile.name} ({profile.id}) ---")
@@ -225,7 +236,15 @@ def run_profiles(config: dict, only: str | None) -> None:
                     if not review.is_dismissed(m.review, review_config["dismissed_values"])
                 ]
 
-            md_path, html_path = profile_report.write_reports(profile, matches, profiles_config["output_dir"])
+            # Only the thematically relevant ones, and by prefilter alone: these are
+            # not scored, so they must not cost an LLM call each.
+            relevant_frameworks = [
+                call for call in frameworks if matching.prefilter(call, profile).passed
+            ]
+
+            md_path, html_path = profile_report.write_reports(
+                profile, matches, profiles_config["output_dir"], frameworks=relevant_frameworks
+            )
             print(f"  {profile.name}: {len(matches)} match(es) -> {md_path}")
             print(f"  {' ' * len(profile.name)}  {html_path}")
     finally:

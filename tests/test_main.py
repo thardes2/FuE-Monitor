@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Tobias Hardes
 
-"""Orchestration in run_profiles: who drives the search, and whose results mix."""
+"""Orchestration in run_profiles: who drives the search, and whose results mix.
+
+The `config` fixture is shared — see conftest.py.
+"""
 
 from __future__ import annotations
 
@@ -20,33 +23,14 @@ def make_profile(pid: str, term: str, cloud: bool) -> Profile:
 
 
 @pytest.fixture
-def config(tmp_path) -> dict:
-    return {
-        "keywords": ["GLOBAL-KEYWORD"],
-        "min_funding_rate_percent": 0,
-        "open_deadlines_only": True,
-        "deadline_warning_days": 14,
-        "llm": {"enabled": True, "backend": "gemini", "gemini": {"api_key": "k", "model": "m"}},
-        "cache": {"enabled": False, "path": str(tmp_path / "pages.json"), "max_age_days": 30},
-        "review": {"enabled": False, "hide_dismissed": False, "dismissed_values": [],
-                   "state_path": str(tmp_path / "review.json")},
-        "profiles": {
-            "directory": str(tmp_path / "profiles"), "output_dir": str(tmp_path / "out"),
-            "cache_path": str(tmp_path / "matches.json"), "cache_max_age_days": 30,
-            "min_score": 0, "max_evaluations_per_profile": None, "max_text_chars": 20000,
-            "review_state_template": str(tmp_path / "review_{profile}.json"),
-        },
-    }
-
-
-@pytest.fixture
 def spy(monkeypatch):
     """Records the keywords each collect() call was given."""
     calls: list[list[str]] = []
     monkeypatch.setattr(main, "collect", lambda cfg: calls.append(list(cfg["keywords"])) or [])
     monkeypatch.setattr(matching, "match_profile", lambda *a, **k: [])
     monkeypatch.setattr(
-        profile_report, "write_reports", lambda p, m, d, *a: (Path(d) / p.id / "report.md", Path(d) / p.id / "report.html")
+        profile_report, "write_reports",
+        lambda p, m, d, *a, **k: (Path(d) / p.id / "report.md", Path(d) / p.id / "report.html"),
     )
     return calls
 

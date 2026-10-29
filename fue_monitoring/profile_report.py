@@ -50,7 +50,20 @@ def _summary(matches: list[Match]) -> dict:
     }
 
 
-def render_markdown(profile: Profile, matches: list[Match], generated_at: datetime | None = None) -> str:
+FRAMEWORK_HEADING = "Rahmenbekanntmachungen (kein direkter Antrag)"
+FRAMEWORK_NOTE = (
+    "Auf diese Dokumente kann nicht direkt beantragt werden — sie kündigen separate "
+    "Förderaufrufe an, die die eigentlichen Fristen tragen. Sie sind deshalb nicht "
+    "bewertet, aber thematisch passend, und es lohnt sich, die Folgeaufrufe zu beobachten."
+)
+
+
+def render_markdown(
+    profile: Profile,
+    matches: list[Match],
+    generated_at: datetime | None = None,
+    frameworks: list | None = None,
+) -> str:
     generated_at = generated_at or datetime.now()
     s = _summary(matches)
 
@@ -76,9 +89,17 @@ def render_markdown(profile: Profile, matches: list[Match], generated_at: dateti
             "*unbelegt* markiert und sollten vor Weitergabe geprüft werden."
         )
 
+    def framework_section() -> list[str]:
+        if not frameworks:
+            return []
+        out = ["", f"## {FRAMEWORK_HEADING}", "", FRAMEWORK_NOTE, ""]
+        for call in frameworks:
+            out.append(f"- [{call.title.replace('|', chr(92) + '|')}]({call.link}) — {call.source}")
+        return out
+
     if not matches:
         lines += ["", "Keine Treffer für dieses Profil."]
-        return "\n".join(lines) + "\n"
+        return "\n".join(lines + framework_section()) + "\n"
 
     lines += [
         "",
@@ -114,7 +135,7 @@ def render_markdown(profile: Profile, matches: list[Match], generated_at: dateti
             marker = " *(unbelegt — nicht im Ausschreibungstext gefunden)*" if not m.fundstelle_belegt else ""
             lines += [f"> {m.fundstelle}{marker}", ""]
 
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines + framework_section()) + "\n"
 
 
 _CSS = """
@@ -152,7 +173,12 @@ def _score_class(score: int) -> str:
     return "s-mid" if score >= 40 else "s-low"
 
 
-def render_html(profile: Profile, matches: list[Match], generated_at: datetime | None = None) -> str:
+def render_html(
+    profile: Profile,
+    matches: list[Match],
+    generated_at: datetime | None = None,
+    frameworks: list | None = None,
+) -> str:
     generated_at = generated_at or datetime.now()
     s = _summary(matches)
     e = html.escape
@@ -180,9 +206,20 @@ def render_html(profile: Profile, matches: list[Match], generated_at: datetime |
             "markiert und sollten vor Weitergabe geprüft werden.</p>"
         )
 
+    def framework_block() -> list[str]:
+        if not frameworks:
+            return []
+        out = [f"<h2>{e(FRAMEWORK_HEADING)}</h2>", f'<p class="meta">{e(FRAMEWORK_NOTE)}</p>', "<ul>"]
+        for call in frameworks:
+            out.append(
+                f'<li><a href="{e(call.link)}" target="_blank">{e(call.title)}</a> — {e(call.source)}</li>'
+            )
+        out.append("</ul>")
+        return out
+
     if not matches:
-        parts.append("<p>Keine Treffer für dieses Profil.</p></body></html>")
-        return "\n".join(parts)
+        parts.append("<p>Keine Treffer für dieses Profil.</p>")
+        return "\n".join(parts + framework_block() + ["</body></html>"])
 
     parts += [
         "<h2>Übersicht</h2><table><thead><tr><th>Score</th><th>Ausschreibung</th>"
@@ -227,18 +264,23 @@ def render_html(profile: Profile, matches: list[Match], generated_at: datetime |
             parts.append(f"<blockquote>{e(m.fundstelle)}{marker}</blockquote>")
         parts.append("</div>")
 
+    parts += framework_block()
     parts.append("</body></html>")
     return "\n".join(parts)
 
 
 def write_reports(
-    profile: Profile, matches: list[Match], output_dir: str | Path, generated_at: datetime | None = None
+    profile: Profile,
+    matches: list[Match],
+    output_dir: str | Path,
+    generated_at: datetime | None = None,
+    frameworks: list | None = None,
 ) -> tuple[Path, Path]:
     directory = Path(output_dir) / profile.id
     directory.mkdir(parents=True, exist_ok=True)
 
     md_path = directory / "report.md"
     html_path = directory / "report.html"
-    md_path.write_text(render_markdown(profile, matches, generated_at), encoding="utf-8")
-    html_path.write_text(render_html(profile, matches, generated_at), encoding="utf-8")
+    md_path.write_text(render_markdown(profile, matches, generated_at, frameworks), encoding="utf-8")
+    html_path.write_text(render_html(profile, matches, generated_at, frameworks), encoding="utf-8")
     return md_path, html_path

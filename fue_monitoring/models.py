@@ -16,6 +16,11 @@ class FundingCall:
     funding_rate_percent: float | None = None
     deadline: date | None = None
     deadline_status: str = ""
+    # "dated" / "continuous" / "framework", or "" when not determined — see
+    # llm_extract.SUBMISSION_MODES. A framework document announces separate
+    # Förderaufrufe instead of taking applications itself, so a missing deadline
+    # means something different for it than for a continuously open programme.
+    submission_mode: str = ""
     budget: str = ""
     link: str = ""
     matched_keywords: list[str] = field(default_factory=list)

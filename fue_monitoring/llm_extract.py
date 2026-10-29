@@ -41,7 +41,17 @@ MAX_TEXT_CHARS = 200000
 # older extraction wrong rather than merely different. Recorded alongside the model
 # in the page cache, so existing entries are re-derived from their stored text
 # instead of being trusted or re-crawled.
-EXTRACTION_PROMPT_VERSION = "2"
+EXTRACTION_PROMPT_VERSION = "3"
+
+# Why a document can state no deadline at all, which the open_deadlines_only filter
+# otherwise cannot tell apart: 35 % of scraped pages have no date, and treating them
+# all as "open" fills every report with documents nobody can apply to.
+#   dated      — it names submission dates (whether or not they have passed)
+#   continuous — applications are accepted at any time, no date given
+#   framework  — this document takes no applications itself; they go through separate
+#                Förderaufrufe/Bekanntmachungen published under it
+SUBMISSION_MODES = ("dated", "continuous", "framework")
+FRAMEWORK = "framework"
 
 # All submission dates are collected rather than one, because which of them matters
 # depends on when you ask — see pick_deadline().
@@ -50,9 +60,10 @@ GEMINI_RESPONSE_SCHEMA = {
     "properties": {
         "funding_rate_percent": {"type": "number", "nullable": True},
         "deadlines": {"type": "array", "items": {"type": "string"}},
+        "submission_mode": {"type": "string", "enum": list(SUBMISSION_MODES)},
         "title": {"type": "string", "nullable": True},
     },
-    "required": ["funding_rate_percent", "deadlines", "title"],
+    "required": ["funding_rate_percent", "deadlines", "submission_mode", "title"],
 }
 
 OLLAMA_RESPONSE_SCHEMA = {
@@ -60,9 +71,10 @@ OLLAMA_RESPONSE_SCHEMA = {
     "properties": {
         "funding_rate_percent": {"type": ["number", "null"]},
         "deadlines": {"type": "array", "items": {"type": "string"}},
+        "submission_mode": {"type": "string", "enum": list(SUBMISSION_MODES)},
         "title": {"type": ["string", "null"]},
     },
-    "required": ["funding_rate_percent", "deadlines", "title"],
+    "required": ["funding_rate_percent", "deadlines", "submission_mode", "title"],
 }
 
 PROMPT_TEMPLATE = """You are extracting structured facts from a German government funding-call announcement.
@@ -78,6 +90,10 @@ Only use information literally stated in the text below. If a value isn't stated
     - the date the document was issued or published in the Bundesanzeiger ("Vom ...", "BAnz vom ..."),
     - the period a programme or project may run ("Laufzeit", "Vorhabenbeginn", "Projektende"),
     - deadlines for later steps that only selected applicants reach (formal Förderantrag after a positive Skizzen-Bewertung, reporting duties).
+- submission_mode: exactly one of "dated", "continuous", "framework".
+  - "dated" if the text names any submission date (also when every one of them has passed).
+  - "continuous" if applications or outlines may be submitted at any time with no date given ("Projektskizzen können jederzeit eingereicht werden", "laufende Einreichung").
+  - "framework" if no application can be made on the basis of THIS document — it sets the frame and announces that separate Förderaufrufe, Bekanntmachungen or Calls will be published under it, which carry the actual deadlines. A "Rahmenbekanntmachung" that only refers to future Förderaufrufe is this case. Do not use "framework" merely because the document is long or general.
 - title: a short, clean title for this call if the given title below is messy or unclear, otherwise null.
 
 Given title: {title}
@@ -331,10 +347,12 @@ def merge(result: dict | None, title: str, funding_rate: str, funding_rate_perce
     """Overrides the regex-based fields with the LLM's, field by field, wherever it found something.
 
     Returns the full list of submission dates alongside the single effective one, so
-    callers can cache the list and re-pick from it later.
+    callers can cache the list and re-pick from it later, plus the submission mode.
+    An unrecognised mode comes back as "", which every caller treats as "unknown"
+    rather than guessing.
     """
     if not result:
-        return title, funding_rate, funding_rate_percent, deadline, []
+        return title, funding_rate, funding_rate_percent, deadline, [], ""
 
     if result.get("title"):
         title = result["title"]
@@ -348,4 +366,8 @@ def merge(result: dict | None, title: str, funding_rate: str, funding_rate_perce
     if deadlines:
         deadline = pick_deadline(deadlines)
 
-    return title, funding_rate, funding_rate_percent, deadline, deadlines
+    mode = result.get("submission_mode") or ""
+    if mode not in SUBMISSION_MODES:
+        mode = ""
+
+    return title, funding_rate, funding_rate_percent, deadline, deadlines, mode

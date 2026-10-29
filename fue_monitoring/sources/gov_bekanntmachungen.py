@@ -148,12 +148,13 @@ def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) ->
     # in a company report as "Frist unbekannt". Observed in practice.
     llm_ok = True
     deadlines: list = []
+    submission_mode = ""
     if llm_config:
         llm_result = llm_extract.extract(text, title, llm_config)
         llm_ok = llm_result is not None
-        title, funding_rate, funding_rate_percent, deadline, deadlines = llm_extract.merge(
-            llm_result, title, funding_rate, funding_rate_percent, deadline
-        )
+        (
+            title, funding_rate, funding_rate_percent, deadline, deadlines, submission_mode
+        ) = llm_extract.merge(llm_result, title, funding_rate, funding_rate_percent, deadline)
 
     return {
         "text": text,
@@ -162,6 +163,7 @@ def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) ->
         "funding_rate_percent": funding_rate_percent,
         "deadline": deadline,
         "deadlines": deadlines,
+        "submission_mode": submission_mode,
         "llm_ok": llm_ok,
     }
 
@@ -206,6 +208,7 @@ def _build_call(url: str, data: dict, keywords: list[str]) -> FundingCall:
         funding_rate=funding_rate,
         funding_rate_percent=funding_rate_percent,
         deadline=deadline,
+        submission_mode=data.get("submission_mode") or "",
         link=url,
         matched_keywords=found_keywords,
         note="; ".join(notes) + (" -> please check manually" if notes else ""),
@@ -262,6 +265,7 @@ def fetch(
                 data["deadline"],
                 model=model,
                 deadlines=data.get("deadlines") or [],
+                submission_mode=data.get("submission_mode") or "",
             )
 
     model = llm_extract.extraction_id(llm_config)

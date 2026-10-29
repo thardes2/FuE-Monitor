@@ -68,6 +68,7 @@ class PageCache:
         data.pop("fetched_at", None)
         data.setdefault("llm_model", "")
         data.setdefault("llm_failures", 0)
+        data.setdefault("submission_mode", "")
 
         # Which submission date matters depends on when you ask, so the effective
         # deadline is re-picked from the stored list on every read. That lets a
@@ -90,6 +91,7 @@ class PageCache:
         deadline: date | None,
         model: str = "",
         deadlines: list[date] | None = None,
+        submission_mode: str = "",
     ) -> None:
         if not self.enabled:
             return
@@ -108,6 +110,7 @@ class PageCache:
             "funding_rate_percent": funding_rate_percent,
             "deadline": deadline.isoformat() if deadline else None,
             "deadlines": [d.isoformat() for d in (deadlines or [])],
+            "submission_mode": submission_mode,
         }
         self._touched.add(url)
         self._dirty = True

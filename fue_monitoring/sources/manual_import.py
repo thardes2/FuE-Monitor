@@ -60,7 +60,7 @@ def _parse_html_file(path: Path, keywords: list[str], llm_config: dict | None) -
 
         if llm_config:
             llm_result = llm_extract.extract(context, title, llm_config)
-            title, funding_rate, funding_rate_percent, deadline, _ = llm_extract.merge(
+            title, funding_rate, funding_rate_percent, deadline, _, _ = llm_extract.merge(
                 llm_result, title, funding_rate, funding_rate_percent, deadline
             )
             if llm_config.get("backend") == "gemini":

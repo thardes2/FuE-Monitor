@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from . import llm_extract
+
 PERCENT_RE = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s?%")
 DATE_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b")
 
@@ -111,10 +113,24 @@ def funding_rate_ok(percent: float | None, min_percent: float) -> bool:
     return percent >= min_percent
 
 
-def deadline_ok(deadline: date | None, open_only: bool, today: date | None = None) -> bool:
+def deadline_ok(
+    deadline: date | None,
+    open_only: bool,
+    today: date | None = None,
+    submission_mode: str = "",
+) -> bool:
+    """Whether a call still counts as open.
+
+    A missing deadline normally means "unknown", and excluding those would hide
+    genuinely open programmes — so they're kept. The exception is a framework
+    document: it states no date because no application can be made on it at all,
+    the Förderaufrufe published under it carry the dates. Measured on one run, 35 %
+    of scraped pages had no date, and letting the framework ones through put
+    documents into company reports that nobody can apply to.
+    """
     today = today or date.today()
     if not open_only:
         return True
     if deadline is None:
-        return True  # unknown -> don't exclude
+        return submission_mode != llm_extract.FRAMEWORK
     return deadline >= today

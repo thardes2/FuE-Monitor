@@ -20,6 +20,7 @@ Profile data is confidential, so this refuses to run on a hosted backend.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
@@ -188,10 +189,71 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).casefold().strip()
 
 
+# How close a quote has to be to the source to count as supported. A quote that is
+# off by a character or two is still a quote; one the model made up scores far lower,
+# so the exact threshold matters much less than having one at all. Measured on the
+# case that prompted this: "nichtstatliche" for "nichtstaatliche", one missing
+# letter in ~210 characters, which exact matching rejected outright.
+QUOTE_SIMILARITY_THRESHOLD = 0.95
+
+# Below this a quote has too little substance for similarity to mean anything — a
+# short phrase can reach a high ratio against unrelated text by accident, so those
+# still have to match exactly.
+QUOTE_MIN_WORDS_FOR_FUZZY = 6
+
+# Bounds the work on a long document: only the most distinctive words are used as
+# anchors, and only so many candidate positions are compared.
+QUOTE_ANCHOR_COUNT = 3
+QUOTE_MAX_CANDIDATES = 40
+
+
+def _close_enough(quote_words: list[str], text_words: list[str]) -> bool:
+    """Whether some window of the text is within the threshold of the quote.
+
+    Anchored on the quote's longest words rather than scanning every position: a
+    scraped announcement runs to tens of thousands of words, and comparing a window
+    at each one would cost more than the LLM call that produced the quote.
+    """
+    quote = " ".join(quote_words)
+    anchors = sorted(set(quote_words), key=len, reverse=True)[:QUOTE_ANCHOR_COUNT]
+
+    candidates: list[int] = []
+    for anchor in anchors:
+        offset = quote_words.index(anchor)
+        candidates += [
+            i - offset for i, word in enumerate(text_words)
+            if word == anchor and i >= offset
+        ]
+        if len(candidates) >= QUOTE_MAX_CANDIDATES:
+            break
+
+    for start in sorted(set(candidates))[:QUOTE_MAX_CANDIDATES]:
+        window = " ".join(text_words[start:start + len(quote_words)])
+        if difflib.SequenceMatcher(None, quote, window).ratio() >= QUOTE_SIMILARITY_THRESHOLD:
+            return True
+    return False
+
+
 def verify_quote(quote: str | None, text: str) -> bool:
+    """Whether the quote is actually in the source text.
+
+    Exact containment first, then a near match. The point of the check is to catch a
+    quote the model invented, and a single mistyped character doesn't make a quote
+    invented — flagging one as unsupported sends the reader hunting through the
+    source for a passage that is really there, which costs more trust than it saves.
+    """
     if not quote or not quote.strip():
         return False
-    return _normalise(quote) in _normalise(text)
+
+    normalised_quote, normalised_text = _normalise(quote), _normalise(text)
+    if normalised_quote in normalised_text:
+        return True
+
+    quote_words = normalised_quote.split()
+    if len(quote_words) < QUOTE_MIN_WORDS_FOR_FUZZY:
+        return False
+
+    return _close_enough(quote_words, normalised_text.split())
 
 
 def cache_key(call_link: str, profile_hash: str, model: str = "") -> str:

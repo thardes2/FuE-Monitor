@@ -81,6 +81,27 @@ one of two backends — they're never both called:
 
 Set `llm.enabled: false` to skip the LLM entirely and use regex-only extraction.
 
+**A missing deadline doesn't mean one thing.** 35 % of scraped pages state no
+submission date, and `open_deadlines_only` keeps all of them, because a missing date
+normally means "unknown" and excluding those would hide genuinely open programmes.
+But some pages name no date for a reason: no application can be made on them at all.
+A *Rahmenbekanntmachung* sets the frame and announces separate Förderaufrufe, and
+those carry the real deadlines. So extraction also classifies `submission_mode`:
+
+| | |
+|---|---|
+| `dated` | names submission dates (whether or not they have passed) |
+| `continuous` | applications accepted at any time, no date given |
+| `framework` | takes no applications itself — separate Förderaufrufe follow |
+
+A `framework` page with no date is not treated as an open call and never costs an
+evaluation. It isn't dropped either: each profile report ends with a short list of
+the framework announcements that match the profile's themes, since those are exactly
+the documents whose follow-up calls are worth watching. Relevance there is decided by
+the cheap prefilter alone — listing all of them under every profile would move the
+noise rather than remove it. A mode the model returns outside those three values is
+read as unknown, which behaves like the old "keep it" default.
+
 **Which date is "the" deadline is decided on read, not on extraction.** The model
 is asked for *every* submission date a document names, and the one reported is the
 next one still open — falling back to the last one if they have all passed, so the
@@ -123,6 +144,16 @@ the regex fallback kicks in.
 string into the exception message, so a key passed as a query parameter ends up
 in the run log on every backend error — it appeared 13 times in one measured run
 before this was changed. If you have older logs lying around, check them.
+
+**A quote is checked against the source, but not character by character.** Each
+evaluation has to quote the passage it relies on, and that quote is looked for in
+the scraped text — first exactly, then as a near match above a similarity threshold.
+A quote that is off by a character or two is still a quote: one real report flagged
+a passage as unsupported because the model wrote "nichtstatliche" where the source
+says "nichtstaatliche", one missing letter in ~210 characters. That sends the reader
+hunting through the document for a passage that is really there, which costs more
+trust than it saves. An invented quote scores far below the threshold and is still
+flagged, and a quote too short for a ratio to mean anything must still match exactly.
 
 **Hallucination guard:** an extracted funding rate is discarded unless that exact
 number actually appears next to a `%`/"Prozent" in the scraped text. An invented
