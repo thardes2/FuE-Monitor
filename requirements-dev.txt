@@ -1,0 +1,4 @@
+# Test-only dependencies. Kept out of requirements.txt so the pinned runtime
+# install stays minimal.
+-r requirements.txt
+pytest==8.4.2

@@ -81,6 +81,49 @@ one of two backends — they're never both called:
 
 Set `llm.enabled: false` to skip the LLM entirely and use regex-only extraction.
 
+**Which date is "the" deadline is decided on read, not on extraction.** The model
+is asked for *every* submission date a document names, and the one reported is the
+next one still open — falling back to the last one if they have all passed, so the
+`open_deadlines_only` filter recognises an expired call instead of treating it as
+"deadline unknown". Two defects from one real run drove this:
+
+- A call was reported as due **31.12.2036**. That was its `Geltungsdauer` — "ist bis
+  zum Ablauf des 31. Dezember 2036 gültig" — while the actual deadline, 31 August
+  2026, had already passed. The call read as open, and would have for ten years. The
+  prompt now names the date kinds that are *not* deadlines: validity periods, the
+  Bundesanzeiger publication date, project runtimes, and deadlines only selected
+  applicants reach.
+- A call stating "bis 30. November 2026 beziehungsweise 31. Mai 2028" was reported
+  as 2028, hiding a deadline four weeks out from every urgency marker. An earlier
+  prompt asked for the latest of several dates; that is the wrong one to show in a
+  monitor whose purpose is telling you what to act on now.
+
+Because the choice depends on today's date, the date list is what gets cached and
+the pick is repeated on every read — otherwise a recurring call would drop out when
+its next Stichtag passed and stay out until the entry expired.
+
+**The extraction prompt has a version, and the page cache records it.** Entries note
+`gemini/gemini-flash-lite-latest#p2` rather than the bare model: a corrected prompt
+makes the stored fields *wrong*, not merely different, so those entries have to be
+re-derived from their stored text. Bumping `EXTRACTION_PROMPT_VERSION` therefore
+costs one re-extraction sweep (~30 min for a full source set, no re-crawling) and
+nothing else. The match cache deliberately keys on the bare model instead: an
+evaluation costs an LLM call and doesn't depend on the extraction prompt, so an
+extraction fix must not throw those away.
+
+**Transient backend errors are retried, not surrendered to.** A hosted backend
+answers `503 UNAVAILABLE` when the shared capacity behind it is momentarily
+exhausted — measured here at roughly one request in seven, evenly spread across a
+run and with no `429` alongside, i.e. caused by Google's load rather than by our
+request rate. Treating that as final cost the whole extraction for that page, so
+`429` and `503` are now retried with exponential backoff (2 s, 6 s, 18 s) before
+the regex fallback kicks in.
+
+**The API key is sent as a header, never in the URL.** `requests` folds the query
+string into the exception message, so a key passed as a query parameter ends up
+in the run log on every backend error — it appeared 13 times in one measured run
+before this was changed. If you have older logs lying around, check them.
+
 **Hallucination guard:** an extracted funding rate is discarded unless that exact
 number actually appears next to a `%`/"Prozent" in the scraped text. An invented
 rate would be worse than a blank one — a blank gets flagged as "not detected" for
@@ -117,6 +160,123 @@ Marks are mirrored into `state/review.json` (gitignored), because the Excel is
 overwritten on every run — that file is what makes them survive a deleted, moved
 or renamed spreadsheet. Delete it (and clear the column) to start over.
 
+## Firmenprofile (company profiles)
+
+Beyond the global table, calls can be matched against individual companies (SICP
+members), producing one report per company.
+
+```bash
+python -m fue_monitoring.main --profiles           # every profile
+python -m fue_monitoring.main --profile musterwerk # just this one
+```
+
+**One search pass, matched per profile.** Discovery uses the union of the running
+profiles' themes (weight 2 and up, wildcards stripped) in place of the global
+`keywords`; the sources' own `discovery_terms` still apply on top. Searching per
+profile would repeat the source queries for every company, and those queries —
+Brave in particular — are the metered part of a run, while page downloads are
+already shared through the page cache.
+
+No company sees calls it shouldn't: the prefilter admits a call only if that
+profile's own themes match it, regardless of which term surfaced it. Profiles
+skipped for lack of consent contribute no terms and so cost no queries. Worth
+knowing: since the corpus depends on which profiles run together, a company's
+report can differ between `--profile X` alone and `--profiles`.
+
+The global Excel is **not** written in a profile run: it would be built from
+profile-specific searches and would overwrite the real global table. Run the
+command without either flag for that. Without either flag nothing in this section
+runs.
+
+### Profiles
+
+One YAML per company in `profiles/`, modelled on
+[profiles/example.yaml](profiles/example.yaml). **These files hold confidential
+member data and are gitignored** — only the made-up `example.yaml` is in the
+repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`), `rolle`,
+`themen` (each `begriff` + `gewicht` 1–3), `ausschluss`, `programme_bevorzugt`,
+`eigenanteil_max_prozent`, `sicp_ansprechpartner`, `cloud_erlaubt`. A broken profile aborts the
+run rather than being skipped, because a silently skipped company is
+indistinguishable from one that simply had no matches.
+
+### How matching works
+
+**Stage 1 — prefilter (free).** Profile terms are matched on **word boundaries**,
+unlike the global keyword list which matches substrings. That difference is the
+point: `KI` as a substring also hits "Kinder" and "Kilometer", which is tolerable
+in a table you scan yourself but not in a report that goes to a company. A
+trailing `*` opts into German compounds — `Mobilität*` matches
+"Mobilitätskonzept", plain `Mobilität` only the standalone word. Terms under
+`ausschluss` drop a call outright, before any model sees it. The global keyword
+list is deliberately **not** applied here: a company's themes are its own.
+
+**Stage 2 — LLM evaluation (one local inference per surviving call).** The model
+returns a fit score (0–100, weighted by your `gewicht`), a short German
+rationale, an eligibility verdict (`ja`/`nein`/`unklar` with the concrete reason —
+SME-only, mandatory consortium, own contribution too high) and a **verbatim quote**
+backing that verdict. The quote is checked against the call text; one that can't
+be found is reported as *unbelegt* rather than passed off as evidence, the same
+stance the funding-rate guard takes.
+
+**Confidentiality — consent is per profile.** Matching only runs on the local
+`ollama` backend unless a profile opts in with `cloud_erlaubt: true`; such a
+profile then uses whatever `llm.backend` is set to (e.g. `gemini`), and the run
+states by name whose data goes to the hosted API.
+
+With a hosted backend, profiles that haven't opted in are **skipped, not fatal** —
+one company withholding consent doesn't block the others' reports. Skipped
+profiles are always named (silently dropping one would read exactly like "no
+matches this week") and they don't drive discovery either, so they cost no search
+queries. Two cases still abort rather than skip: no usable backend at all (a
+configuration fault, not a consent decision), and *no* selected profile permitting
+the configured backend — otherwise the command would appear to succeed while
+producing nothing.
+
+**Cost:** one inference per (call, profile) pair that survives the prefilter.
+Evaluations are cached per call link + profile fingerprint + prompt version, so
+only genuinely new pairs cost time. The fingerprint covers the matching-relevant
+fields only — renaming a contact keeps the cache, editing a theme invalidates it.
+`profiles.max_evaluations_per_profile` caps a run; candidates are evaluated in
+descending prefilter weight, so a cap spends the budget on the best ones. The
+scoring prompt gets `profiles.max_text_chars` of the call (default 20000, not the
+full document): measured ~24 s per evaluation at that size versus ~85 s at ~98000,
+and fit and eligibility rest on the opening sections. Deadline and funding rate
+are unaffected — those come from the extraction step, which reads the whole text.
+
+### Output and marking
+
+`output/<profil-id>/report.md` and `report.html` (self-contained, no external
+assets). Marking works like the Excel's Review column, but via CLI since a report
+isn't editable:
+
+```bash
+python -m fue_monitoring.main --mark musterwerk "https://…" "not relevant"
+python -m fue_monitoring.main --mark musterwerk "https://…" ""   # clear it
+```
+
+State lives in `state/review_<profil-id>.json` and uses the same
+`review.dismissed_values` as the global table.
+
+### Programmes that can't be collected
+
+[programmes_static.yaml](programmes_static.yaml) is a hand-maintained catalogue
+for programmes behind bot-detection — currently the BMWE "DNS der zukunftsfähigen
+Mobilität". Entries become ordinary calls and go through matching like the rest;
+recurring cut-offs (`31.03.`, `30.09.`) resolve to the next one still inside
+`gueltig_bis`. Keep `beschreibung` factual: it is what the model quotes from.
+
+Note that these entries are prefiltered like any other call, so a profile only
+sees one if its own themes appear in `beschreibung`. If a programme you added
+here for a specific company doesn't reach it, that's why — either extend the
+description (truthfully) or add a matching term to the profile.
+
+### Tests
+
+```bash
+./.venv/bin/python3 -m pip install -r requirements-dev.txt
+./.venv/bin/python3 -m pytest tests/ -q
+```
+
 ## Cache
 
 Announcement pages are static documents, but each uncached one costs its site's
@@ -131,6 +291,45 @@ keyword matches — those are recomputed every run, so editing `keywords` takes
 effect immediately without invalidating the cache. Entries expire after
 `cache.max_age_days`; delete `cache/pages.json` to force a full refresh (needed
 if you change the LLM prompt or model, since extracted values are cached).
+
+**Results are tied to the model that produced them.** Evaluations are keyed by
+backend and model (`ollama/qwen3.8:latest`, `gemini/gemini-flash-lite-latest`, …)
+alongside call link, profile fingerprint and prompt version — different models
+score the same call differently, so without that a backend switch would blend two
+models' verdicts into one report and switching back would resurrect the old ones.
+
+Page-cache entries record their model too, but it is deliberately *not* part of
+the key: the stored page text doesn't depend on the model, so after a switch the
+fields are re-derived from that text instead of re-crawling every page at its
+site's `Crawl-delay`. Such a sweep is throttled, since a hosted backend otherwise
+runs into per-minute rate limits. Expect one such pass the first time you run
+after a model change (no downloads, a few minutes).
+
+**Two runs sharing a cache file don't erase each other.** Both caches read the
+whole file at start, so writing it back wholesale meant the run that finished last
+silently reverted the other one — including an interrupted one, since `save()` runs
+from a `finally` block and Ctrl-C still reaches it. Observed in practice: a parallel
+run that was cancelled cost ~30 freshly extracted entries their recorded model.
+`save()` therefore re-reads the file and applies only the entries that run actually
+wrote, and writes through a temp file so an interrupt mid-write can't truncate the
+cache. This matters most for the match cache: two profiles evaluated concurrently
+write disjoint keys, and an evaluation costs an LLM call, unlike a page that could
+simply be fetched again.
+
+**A failed LLM call is never cached.** When the backend is unreachable the
+pipeline falls back to regex, and the regex can't read written-out dates like
+"30. April 2026" — so the deadline comes out empty. Caching that would freeze a
+transient outage in place for `cache.max_age_days`, and since a call with no
+deadline passes the `open_deadlines_only` filter, an expired call would keep
+surfacing as "Frist unbekannt". Observed in practice, hence the rule: such a page
+is simply re-fetched next run. (If your cache predates this, re-run extraction
+over the cached text to fill the gaps in — no re-crawl needed.)
+
+A page whose re-extraction keeps failing is given up on after three attempts
+(counted per entry in `llm_failures`). Without that it would queue again on every
+single run, because its recorded model never catches up with the configured one.
+Its previously extracted fields are kept rather than overwritten with regex-only
+output — stale beats blank, for the reason just above.
 
 ## Secrets (`config.local.yaml`)
 

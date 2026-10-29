@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+#
+# Example profile with a made-up company — the only profile tracked in git.
+# Real SICP member profiles belong next to this file as <id>.yaml and are
+# gitignored, since they contain confidential member data.
+
+id: musterwerk
+name: Musterwerk Automatisierung GmbH
+groesse: kmu                      # kmu | grossunternehmen
+rolle: Entwicklungspartner für industrielle Bildverarbeitung
+
+# Matching terms. Weight 1-3 — 3 means "core business", 1 "adjacent, still of
+# interest". Weights steer the LLM's scoring, they aren't a filter.
+#
+# Matching is on word boundaries, so "KI" no longer matches "Kinder" or
+# "Kilometer". A trailing "*" additionally allows German compounds:
+# "Mobilität*" matches "Mobilitätskonzept" and "Mobilitäten", while plain
+# "Mobilität" matches only the standalone word. Use "*" for nouns that get
+# compounded, leave it off for short acronyms.
+themen:
+  - begriff: "KI"
+    gewicht: 3
+
+# Hard exclusions: a call whose text contains any of these is dropped before the
+# LLM ever sees it — no score, no report entry. Also word-boundary matched.
+ausschluss:
+  - "Medizinprodukt*"
+  - "Wehrtechnik*"
+  - "Tierversuch*"
+
+# Free text, shown in the report and given to the LLM as context.
+programme_bevorzugt:
+  - "ZIM"
+  - "Horizon Europe"
+  - "EFRE.NRW"
+
+# Highest own contribution the company will shoulder, in percent. Used by the
+# LLM when judging eligibility; leave empty if it shouldn't weigh in.
+eigenanteil_max_prozent: 50
+
+sicp_ansprechpartner: Max Mustermann
+cloud_erlaubt: false             # true = darf an die gehostete llm.backend (z. B. Gemini) gesendet werden

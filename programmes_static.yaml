@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Tobias Hardes
+#
+# Hand-maintained catalogue of open programmes that cannot be collected
+# automatically — chiefly ones on bundeswirtschaftsministerium.de, which is
+# behind Radware bot-detection (see the note in config.yaml).
+#
+# These entries go through profile matching exactly like collected calls, so the
+# `beschreibung` below is what the prefilter reads and what the LLM quotes from.
+# Keep it factual: anything written here can end up quoted in a company report as
+# if it came from the official call.
+#
+# Deadlines: use `stichtage_wiederkehrend` for recurring cut-off dates (DD.MM.);
+# the next one still inside `gueltig_bis` is used automatically. Use `frist` for a
+# single fixed date (DD.MM.YYYY).
+
+programme:
+  - titel: "DNS der zukunftsfähigen Mobilität"
+    programm: "BMWE — Digitale Netze und Sicherheit / Mobilität"
+    link: "https://www.bundeswirtschaftsministerium.de/Navigation/DE/Service/Ausschreibungen/ausschreibungen.html"
+    projekttraeger: "TÜV Rheinland"
+    stichtage_wiederkehrend:
+      - "31.03."
+      - "30.09."
+    gueltig_bis: "30.06.2027"
+    beschreibung: >
+      Förderrichtlinie des BMWE zur DNS der zukunftsfähigen Mobilität.
+      Projektskizzen können zu den Stichtagen 31. März und 30. September
+      eingereicht werden. Die Förderrichtlinie läuft bis zum 30. Juni 2027.
+      Projektträger ist der TÜV Rheinland.
+      Hinweis: Dieser Eintrag wird manuell gepflegt, da die Seite des BMWE
+      automatisiert nicht abrufbar ist — Details bitte beim Projektträger prüfen.

@@ -22,6 +22,10 @@ class FundingCall:
     note: str = ""
     # Yours to fill in inside the Excel; carried across runs by review.py.
     review: str = ""
+    # The call's own description text, as far as the source provides one. Profile
+    # matching reads this (and quotes from it), so without it a call would be
+    # judged on its title alone. Never written to the Excel — it's far too long.
+    text: str = ""
 
     @property
     def dedup_key(self) -> str:

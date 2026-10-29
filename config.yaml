@@ -18,6 +18,8 @@ keywords:
   - "KI"
   - "Digitaler Zwilling"
   - "Energieerzeugung"
+  - "Verteidigung"
+  - "Zivile Sicherheit" 
   
 
 # Minimum funding rate in percent. Calls with a detected rate below this value
@@ -32,7 +34,7 @@ open_deadlines_only: true
 deadline_warning_days: 14
 
 eu_portal:
-  enabled: true
+  enabled: false
   page_size: 100
   max_pages: 3
 
@@ -152,6 +154,12 @@ llm:
   # Set enabled: false to skip the LLM entirely and use regex-only extraction.
   enabled: true
 
+  # backend and ollama.base_url are deployment-specific: override them in
+  # config.local.yaml rather than here. This file is committed to a public
+  # repository, so an internal host address does not belong in it, and the
+  # default stays on the local backend so profile data isn't sent to a hosted
+  # API by accident.
+  #
   # Which backend to use — exactly one is called, never both:
   #   "gemini" -> Google's hosted API. Needs an API key, subject to their quotas,
   #               and the scraped page text is sent to Google.
@@ -178,10 +186,11 @@ llm:
     # qwen3.8 is a reasoning model; leaving thinking on makes it spend most of its
     # time and tokens on a thinking pass this extraction task doesn't need.
     think: false
-    # Seconds. A ~50k-char announcement takes well under a minute on a machine
-    # that fits the model in memory, but a cold start or slower hardware can take
-    # considerably longer, hence the generous default.
-    timeout: 300
+    # Seconds. Must exceed the cold start, not just the inference: loading the
+    # model into memory was measured at ~380 s on the configured host, so the
+    # previous 300 s guaranteed that the first request after a model change timed
+    # out. Warm requests take ~3-85 s depending on prompt length.
+    timeout: 900
 
 review:
   # So you don't have to work through the whole table again on every run: the
@@ -211,6 +220,51 @@ review:
     - "done"
     - "no"
     - "x"
+
+profiles:
+  # Company profiles (SICP members): the same collected calls are matched against
+  # every profile in `directory`, producing one report per company. Only runs when
+  # --profiles / --profile is passed; without those flags nothing here is touched.
+  #
+  # The profile YAMLs hold confidential member data and are gitignored — only
+  # profiles/example.yaml is in the repository.
+  enabled: true
+  directory: "profiles"
+  output_dir: "output"
+
+  # Hand-maintained programmes that can't be collected automatically (see the
+  # BMWE note under gov_bekanntmachungen). They're treated as ordinary calls.
+  static_catalogue: "programmes_static.yaml"
+
+  # How much of a call's text the scoring prompt gets. Measured against qwen3.8
+  # on the configured host: ~24 s per evaluation at 20000 characters versus ~85 s
+  # at the full ~98000, and one evaluation runs per (call, profile) pair — the
+  # full text would make a wide profile take hours. Fit and eligibility rest on
+  # the opening sections (Förderziel, Zuwendungsempfänger), which fit in this
+  # budget. Raise it if eligibility conditions are being missed on long calls;
+  # the deadline and funding rate are unaffected, llm_extract reads those from
+  # the whole document.
+  max_text_chars: 20000
+
+  # Drop matches the model scored below this. 0 keeps everything the prefilter let
+  # through, which is useful while tuning a profile's themes.
+  min_score: 0
+
+  # Hard cap on LLM evaluations per profile and run, or null for no cap. Each
+  # evaluation is one local inference over the full call text, so a wide profile
+  # against ~110 calls is minutes of compute. Candidates are evaluated highest
+  # prefilter weight first, so a cap spends the budget on the best candidates.
+  max_evaluations_per_profile: null
+
+  # Evaluations are cached per (call link, profile fingerprint, prompt version).
+  # Editing a profile's themes invalidates its cached evaluations; editing its
+  # contact person does not.
+  cache_path: "cache/matches.json"
+  cache_max_age_days: 30
+
+  # Per-profile review state. {profile} is replaced with the profile id. Mark
+  # entries with: python -m fue_monitoring.main --mark <id> <link> "not relevant"
+  review_state_template: "state/review_{profile}.json"
 
 cache:
   # Announcement pages are static documents, but each uncached one costs its

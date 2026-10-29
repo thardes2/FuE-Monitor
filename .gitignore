@@ -7,3 +7,10 @@ input/*.htm
 config.local.yaml
 cache/
 state/
+
+# Confidential SICP member profiles — only the made-up example is tracked.
+profiles/*
+!profiles/example.yaml
+# Per-profile review state and reports
+state/review_*.json
+output/*/

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 import requests
+from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 
 from ..models import FundingCall
@@ -90,8 +91,16 @@ def _to_funding_call(result: dict) -> FundingCall | None:
     funding_rate_percent = float(rate_raw) if rate_raw else None
     budget = _budget_from_overview(metadata, identifier) or _first(metadata, "esIN_overallBudget", "budget")
 
+    # Topics carry their description as an HTML blob in descriptionByte, older
+    # procurement records as plain text in description. Profile matching needs
+    # this: without it the EU entries — the bulk of every run — would be matched
+    # and quoted on their title alone.
+    description = _first(metadata, "descriptionByte", "description")
+    text = BeautifulSoup(description, "html.parser").get_text(" ", strip=True) if description else ""
+
     return FundingCall(
         source="EU Funding & Tenders Portal",
+        text=f"{title} {text}".strip(),
         title=title,
         programme=programme,
         funding_rate=funding_rate,

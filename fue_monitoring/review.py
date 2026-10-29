@@ -70,7 +70,9 @@ def _read_marks_from_excel(xlsx_path: Path) -> dict[str, str]:
 
 
 class ReviewState:
-    def __init__(self, state_path: str | Path, xlsx_path: str | Path, enabled: bool = True):
+    def __init__(self, state_path: str | Path, xlsx_path: str | Path | None = None, enabled: bool = True):
+        """`xlsx_path` is optional: per-profile reports are Markdown/HTML and have
+        no editable column, so there marks come from the CLI and live only in JSON."""
         self.path = Path(state_path)
         self.enabled = enabled
         self._marks: dict[str, str] = {}
@@ -85,7 +87,17 @@ class ReviewState:
                 print(f"  (review state at {self.path} unreadable, starting empty: {exc})")
 
         # Whatever is in the Excel right now is what you last typed, so it wins.
-        self._marks.update(_read_marks_from_excel(Path(xlsx_path)))
+        if xlsx_path is not None:
+            self._marks.update(_read_marks_from_excel(Path(xlsx_path)))
+
+    def get(self, link: str) -> str:
+        return self._marks.get(link, "") if self.enabled else ""
+
+    def set(self, link: str, value: str) -> None:
+        if not value.strip():
+            self._marks.pop(link, None)
+        else:
+            self._marks[link] = value.strip()
 
     def apply(self, entries: list[FundingCall]) -> None:
         """Copies remembered marks onto this run's entries."""

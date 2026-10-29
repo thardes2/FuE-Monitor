@@ -39,4 +39,12 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> dict:
     config["output"]["path"] = str(base_dir / config["output"]["path"])
     config["cache"]["path"] = str(base_dir / config["cache"]["path"])
     config["review"]["state_path"] = str(base_dir / config["review"]["state_path"])
+
+    profiles = config.get("profiles")
+    if profiles:
+        for key in ("directory", "output_dir", "static_catalogue", "cache_path"):
+            profiles[key] = str(base_dir / profiles[key])
+        # Keep the {profile} placeholder intact while making the path absolute.
+        profiles["review_state_template"] = str(base_dir / profiles["review_state_template"])
+
     return config
