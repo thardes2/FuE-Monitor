@@ -206,15 +206,16 @@ def test_a_linkless_entry_is_not_merged_with_a_linked_one():
 # --- the wiring ------------------------------------------------------------
 
 
-def test_collect_merges_across_sources(tmp_path, monkeypatch, capsys):
+def test_collect_merges_across_sources(tmp_path, monkeypatch, caplog):
     """Through collect(), not just the module: an untested wiring is no wiring. This
     test fails when the merge call is removed from collect, which the unit tests
     above do not."""
-    from fue_monitoring import main
+    from fue_monitoring import pipeline
     from fue_monitoring.sources import foerderinfo_newsletter, manual_import
 
     config = {
-        "keywords": [],
+        "keywords": [], "min_funding_rate_percent": 0, "open_deadlines_only": False,
+        "deadline_warning_days": 14,
         "eu_portal": {"enabled": False},
         "llm": {"enabled": False},
         "manual_import": {"enabled": True, "input_dir": str(tmp_path)},
@@ -226,11 +227,12 @@ def test_collect_merges_across_sources(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(manual_import, "fetch", lambda *a, **k: [teased()])
     monkeypatch.setattr(foerderinfo_newsletter, "fetch", lambda *a, **k: [crawled()])
 
-    entries = main.collect(config)
+    with caplog.at_level("INFO", logger="fue_monitoring.pipeline"):
+        entries = pipeline.collect(config).calls
 
     assert len(entries) == 1, "the same announcement from two sources must collapse"
     assert "Volltext" in entries[0].text
-    assert "merged" in capsys.readouterr().out, "and the run should say so"
+    assert any("merged" in r.message for r in caplog.records), "and the run should say so"
 
 
 # --- the framework classification must survive a merge ---------------------

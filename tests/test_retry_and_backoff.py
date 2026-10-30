@@ -9,7 +9,7 @@ from datetime import date
 
 import pytest
 
-from fue_monitoring import llm_extract
+from fue_monitoring import http, llm_extract
 from fue_monitoring.cache import PageCache
 from fue_monitoring.sources import gov_bekanntmachungen as gov
 
@@ -81,7 +81,7 @@ def _cached(tmp_path, failures=0):
 
 
 def _run(cache, monkeypatch, extract_result):
-    monkeypatch.setattr(gov.requests, "get",
+    monkeypatch.setattr(http.requests, "get",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("re-crawled")))
     monkeypatch.setattr(gov.time, "sleep", lambda s: None)
     monkeypatch.setattr(gov, "_listing_urls", lambda *a, **k: ["http://x/a.html"])

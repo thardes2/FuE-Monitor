@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fue_monitoring import main, matching, profile_report
+from fue_monitoring import main, matching, pipeline, profile_report
 from fue_monitoring import profiles as profiles_module
 from fue_monitoring.profiles import KNOWN_KEYS, Profile, ProfileError, Theme, load_profile
 
@@ -72,7 +72,7 @@ def test_the_threshold_is_not_part_of_the_fingerprint():
 def running(monkeypatch, tmp_path):
     """Captures the min_score that match_profile is actually called with."""
     seen = {}
-    monkeypatch.setattr(main, "collect", lambda cfg: [])
+    monkeypatch.setattr(pipeline, "collect", lambda cfg: pipeline.CollectionResult())
     monkeypatch.setattr(matching, "match_profile",
                         lambda *a, **k: seen.update(k) or [])
     monkeypatch.setattr(profile_report, "write_reports",

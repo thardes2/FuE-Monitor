@@ -20,6 +20,7 @@ Profile data is confidential, so this refuses to run on a hosted backend.
 
 from __future__ import annotations
 
+import logging
 import difflib
 import hashlib
 import json
@@ -31,6 +32,8 @@ from pathlib import Path
 from . import llm_extract
 from .models import FundingCall
 from .profiles import Profile
+
+log = logging.getLogger(__name__)
 
 # Bump when the prompt or schema changes so cached evaluations from the old
 # wording don't get reused.
@@ -315,7 +318,7 @@ class MatchCache:
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"  (match cache at {self.path} unreadable, starting empty: {exc})")
+            log.warning(f"  (match cache at {self.path} unreadable, starting empty: {exc})")
             return {}
 
     def get(self, key: str) -> dict | None:
@@ -492,6 +495,6 @@ def match_profile(
     )
     if max_evaluations is not None and passed_prefilter > max_evaluations:
         message += f"; {passed_prefilter - max_evaluations} not evaluated, capped by max_evaluations_per_profile"
-    print(message + ")")
+    log.info(message + ")")
     matches.sort(key=lambda m: (-m.score, m.call.deadline is None, m.call.deadline))
     return matches

@@ -19,7 +19,18 @@ def _deep_merge(base: dict, overrides: dict) -> dict:
     return base
 
 
-def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> dict:
+def load_config(
+    path: Path | str = DEFAULT_CONFIG_PATH,
+    overrides: dict | None = None,
+) -> dict:
+    """Loads config.yaml, config.local.yaml on top of it, then `overrides`.
+
+    `overrides` is for a host application that keeps its settings somewhere else
+    entirely — a database, environment variables, a request — and only wants to
+    bend a few keys. It is deep-merged last, so it beats both files, and it is
+    applied *before* the relative paths below are resolved, so an override may give
+    a plain relative path just as the files do.
+    """
     path = Path(path)
     with path.open("r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
@@ -32,6 +43,9 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> dict:
         with local_path.open("r", encoding="utf-8") as f:
             local_config = yaml.safe_load(f) or {}
         _deep_merge(config, local_config)
+
+    if overrides:
+        _deep_merge(config, overrides)
 
     base_dir = path.resolve().parent
     config["_base_dir"] = base_dir

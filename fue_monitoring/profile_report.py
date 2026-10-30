@@ -15,7 +15,7 @@ being presented as evidence.
 from __future__ import annotations
 
 import html
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from .matching import Match

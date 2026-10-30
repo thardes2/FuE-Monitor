@@ -13,9 +13,12 @@ like empty results is worse than one that stops.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import requests
+
+log = logging.getLogger(__name__)
 
 # Statuses worth another attempt. 429 and 503 are the two a server uses to say
 # "later"; 502/504 are a gateway briefly losing its backend.
@@ -64,12 +67,12 @@ def get(url: str, *, headers: dict | None = None, timeout: int = 30, label: str 
             last_error = f"HTTP {response.status_code}"
             stated = _retry_after(response)
             if stated is not None and attempt < len(BACKOFF_SECONDS):
-                print(f"    ({where}: {last_error}, server asked for {stated:g}s)")
+                log.warning(f"    ({where}: {last_error}, server asked for {stated:g}s)")
                 time.sleep(stated)
                 continue
 
         if attempt < len(BACKOFF_SECONDS):
-            print(f"    ({where}: {last_error}, retrying in {BACKOFF_SECONDS[attempt]}s)")
+            log.warning(f"    ({where}: {last_error}, retrying in {BACKOFF_SECONDS[attempt]}s)")
 
-    print(f"    could not fetch {where} after {len(BACKOFF_SECONDS) + 1} attempts: {last_error}")
+    log.warning(f"    could not fetch {where} after {len(BACKOFF_SECONDS) + 1} attempts: {last_error}")
     return None

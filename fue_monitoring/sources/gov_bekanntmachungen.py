@@ -21,16 +21,18 @@ elsewhere in this project.
 
 from __future__ import annotations
 
+import logging
 import time
 from urllib.parse import urlencode, urljoin
 
-import requests
 from bs4 import BeautifulSoup
 
 from .. import http, llm_extract
 from ..cache import PageCache
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
+
+log = logging.getLogger(__name__)
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring; personal R&D funding monitoring)"}
@@ -107,7 +109,7 @@ def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_result
         )
         if resp is None or resp.status_code != 200:
             detail = f": {resp.text[:200]}" if resp is not None else ""
-            print(f"    Brave search failed for '{term}' on {site}{detail}")
+            log.warning(f"    Brave search failed for '{term}' on {site}{detail}")
             break
 
         results = resp.json().get("web", {}).get("results", [])
@@ -248,7 +250,7 @@ def fetch(
     urls: dict[str, str] = {}
     if discovery == "brave":
         if not brave_api_key:
-            print(f"  ({name}: brave_api_key not set, skipping this source)")
+            log.warning(f"  ({name}: brave_api_key not set, skipping this source)")
             return []
         # Two complementary query sets, because neither alone is complete:
         # generic terms enumerate broadly but rank a niche call out of reach, while
@@ -256,7 +258,7 @@ def fetch(
         # "KI in Wertschöpfungsketten" call that only the keyword query found.
         
         for term in list(source_config.get("discovery_terms", [])) + list(keywords):
-            print(f" Scanning {term}")
+            log.info(f" Scanning {term}")
             for url in _brave_urls(
                 term,
                 source_config["search_site"],
@@ -289,9 +291,9 @@ def fetch(
     model = llm_extract.extraction_id(llm_config)
     entries: dict[str, FundingCall] = {}
     downloaded = re_extracted = 0
-    print(f"Got {len(urls)} URLs to scan")
+    log.info(f"Got {len(urls)} URLs to scan")
     for url in urls.values():
-        print(f"Checking {url}...")
+        log.info(f"Checking {url}...")
         data = cache.get(url) if cache else None
 
         if (
@@ -339,5 +341,5 @@ def fetch(
     )
     if re_extracted:
         summary += f", {re_extracted} re-extracted for model '{model}' without re-crawling"
-    print(summary + ")")
+    log.info(summary + ")")
     return list(entries.values())

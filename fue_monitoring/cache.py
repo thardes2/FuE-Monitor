@@ -17,10 +17,13 @@ invalidating the cache.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from . import llm_extract
-from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 class PageCache:
@@ -45,7 +48,7 @@ class PageCache:
         try:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"  (cache at {self.path} unreadable, starting empty: {exc})")
+            log.warning(f"  (cache at {self.path} unreadable, starting empty: {exc})")
             return {}
 
     def get(self, url: str) -> dict | None:

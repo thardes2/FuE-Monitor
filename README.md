@@ -554,6 +554,59 @@ It's deep-merged on top of `config.yaml` at load time — see
 [fue_monitoring/config.py](fue_monitoring/config.py). The `ollama` backend needs
 nothing here, since it uses no credentials.
 
+## Using it as a library
+
+The command line is one consumer of this package; a second application — a web
+service, say — is meant to be another. `fue_monitoring.api` is the supported
+surface, and the only module a consumer should import from. Everything else is
+internal and gets refactored without notice.
+
+```python
+import logging
+from fue_monitoring import api
+
+logging.basicConfig(level=logging.INFO)          # your handlers, your format
+config = api.load_config("/srv/fue/config.yaml",
+                         overrides={"llm": {"backend": "ollama"}})
+
+profiles, skipped = api.running_profiles(config)
+collection = api.collect(api.search_config_for(config, profiles))
+
+for result in api.match_profiles(config, collection, profiles):
+    markdown = api.render_markdown(result.profile, result.matches,
+                                   frameworks=result.frameworks)
+    ...   # store it, serve it, mail it
+```
+
+Three guarantees, each with a test that fails if it is broken:
+
+- **Nothing is written.** `collect()` and `match_profiles()` return data
+  (`CollectionResult`, `ProfileResult`); rendering returns strings. Putting files on
+  disk is a separate, optional step (`write_reports`, `write_excel`) that the CLI
+  uses and a web service need not. No writable directory is required.
+- **Nothing is printed, and logging stays yours.** Progress goes through `logging`
+  under the `fue_monitoring` logger. The package attaches no handler and never
+  touches the root logger, so importing it cannot take over a host application's
+  output. The CLI is the only place that configures anything —
+  `main.configure_cli_logging` — which is why its terminal output is unchanged.
+- **Configuration is explicit.** `load_config(path, overrides=...)` takes a file
+  anywhere plus a mapping that wins over it, for hosts that keep settings in a
+  database or environment. Relative paths are resolved against the config file, so
+  an override may give one just as the file does.
+
+`collect()` also reports what it could *not* read, in `CollectionResult.unreachable`
+— a consumer can tell an incomplete run from a quiet week, which a count of zero
+never says on its own.
+
+**Confidentiality is enforced, not documented.** `running_profiles()` returns the
+profiles that may run and those withheld: a profile only reaches a hosted backend if
+it sets `cloud_erlaubt: true`. It is on the caller not to route a withheld profile
+to a hosted model by some other path.
+
+Layout: `pipeline.py` decides, `main.py` is the CLI (arguments, logging, files), and
+`api.py` is the published door onto the first. Installing the package also puts the
+command line on the PATH as `fue-monitor`; `python -m fue_monitoring` works too.
+
 ## Setup
 
 ```bash

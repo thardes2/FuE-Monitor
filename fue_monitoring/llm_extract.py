@@ -19,6 +19,7 @@ which one produced a result.
 
 from __future__ import annotations
 
+import logging
 import json
 import re
 import time
@@ -26,6 +27,8 @@ from datetime import date
 
 import requests
 from dateutil import parser as dateparser
+
+log = logging.getLogger(__name__)
 
 GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -126,7 +129,7 @@ def post_with_retry(url: str, **kwargs):
         if last.status_code not in RETRYABLE_STATUS:
             return last
         if attempt < len(RETRY_BACKOFF_SECONDS):
-            print(f"  (backend returned {last.status_code}, retrying in {RETRY_BACKOFF_SECONDS[attempt]}s)")
+            log.warning(f"  (backend returned {last.status_code}, retrying in {RETRY_BACKOFF_SECONDS[attempt]}s)")
     return last
 
 
@@ -240,10 +243,10 @@ def run_json(prompt: str, llm_config: dict, schema: dict) -> dict | None:
             return _extract_gemini(prompt, llm_config["gemini"], _to_gemini_schema(schema))
         if backend == "ollama":
             return _extract_ollama(prompt, llm_config["ollama"], schema)
-        print(f"  (unknown llm backend '{backend}')")
+        log.warning(f"  (unknown llm backend '{backend}')")
         return None
     except (requests.exceptions.RequestException, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        print(f"  ({backend} request failed: {exc})")
+        log.warning(f"  ({backend} request failed: {exc})")
         return None
 
 
@@ -265,7 +268,7 @@ def _drop_unsupported_funding_rate(result: dict, text: str) -> dict:
     as_int = f"{pct:g}"
     number = re.escape(as_int).replace(r"\.", "[.,]")
     if not re.search(rf"\b{number}\s*(%|Prozent)", text, re.IGNORECASE):
-        print(f"  (discarding funding rate '{as_int} %' — not found in the source text)")
+        log.warning(f"  (discarding funding rate '{as_int} %' — not found in the source text)")
         result["funding_rate_percent"] = None
 
     return result
@@ -288,10 +291,10 @@ def extract(text: str, title: str, llm_config: dict) -> dict | None:
         elif backend == "ollama":
             result = _extract_ollama(prompt, llm_config["ollama"])
         else:
-            print(f"  (unknown llm backend '{backend}', falling back to regex)")
+            log.warning(f"  (unknown llm backend '{backend}', falling back to regex)")
             return None
     except (requests.exceptions.RequestException, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        print(f"  ({backend} extraction failed, falling back to regex: {exc})")
+        log.warning(f"  ({backend} extraction failed, falling back to regex: {exc})")
         return None
 
     return _drop_unsupported_funding_rate(result, text) if result else result

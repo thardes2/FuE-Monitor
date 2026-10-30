@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fue-monitor"
+version = "0.2.0"
+description = "Collect German and EU R&D funding calls and match them against company profiles"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Tobias Hardes" }]
+dependencies = [
+    "requests==2.32.5",
+    "beautifulsoup4==4.15.0",
+    "pyyaml==6.0.3",
+    "openpyxl==3.1.5",
+    "python-dateutil==2.9.0.post0",
+    "pypdf==6.21.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+# The command line stays exactly as it was; this only makes it reachable after an
+# install, instead of only from the source directory.
+[project.scripts]
+fue-monitor = "fue_monitoring.main:main"
+
+[tool.setuptools]
+packages = ["fue_monitoring", "fue_monitoring.sources"]
+
+# config.yaml and programmes_static.yaml are deliberately NOT package data: a host
+# application points load_config() at its own file, and shipping a copy inside the
+# package would make it ambiguous which one is in effect.

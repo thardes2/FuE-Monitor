@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from fue_monitoring import matching
+from fue_monitoring import http, matching
 from fue_monitoring.models import FundingCall
 from fue_monitoring.profiles import Profile, Theme
 
@@ -271,7 +271,7 @@ def test_failed_llm_extraction_is_not_cached(tmp_path, monkeypatch):
         status_code = 200
         text = html
 
-    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
     monkeypatch.setattr(llm_extract, "extract", lambda *a, **k: None)  # backend down
 
     cache = PageCache(tmp_path / "pages.json")
@@ -293,7 +293,7 @@ def test_successful_llm_extraction_is_cached(tmp_path, monkeypatch):
         status_code = 200
         text = '<html><body><main><h1>T</h1><p><a href="/x/a.html">A</a> Frist 30.04.2026</p></main></body></html>'
 
-    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
     monkeypatch.setattr(
         llm_extract, "extract",
         lambda *a, **k: {"funding_rate_percent": None, "deadline": "2026-04-30", "title": None},

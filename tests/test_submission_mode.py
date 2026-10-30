@@ -16,7 +16,7 @@ from datetime import date
 
 import pytest
 
-from fue_monitoring import llm_extract, main, matching, profile_report
+from fue_monitoring import llm_extract, main, matching, pipeline, profile_report
 from fue_monitoring import profiles as profiles_module
 from fue_monitoring.filters import deadline_ok
 from fue_monitoring.models import FundingCall
@@ -90,6 +90,19 @@ def test_a_failed_extraction_reports_no_mode():
 PROFILE = Profile(id="p", name="P", groesse="kmu", themen=[Theme("künstliche Intelligenz", 3)])
 
 
+def _collecting(calls):
+    """A stub collect() that classifies like the real one: frameworks apart, the
+    rest filtered for open deadlines."""
+    def collect(config):
+        frameworks = [c for c in calls if c.submission_mode == llm_extract.FRAMEWORK]
+        return pipeline.CollectionResult(
+            calls=list(calls),
+            open_calls=main.apply_filters(list(calls), config, require_keywords=False),
+            frameworks=frameworks,
+        )
+    return collect
+
+
 def test_frameworks_are_listed_even_when_nothing_matched():
     """Silently dropping them would be worse than the noise they caused: these are
     exactly the documents whose follow-up calls are worth watching."""
@@ -120,7 +133,7 @@ def test_only_thematically_relevant_frameworks_reach_a_profile(tmp_path, monkeyp
     unrelated = FundingCall(source="S", title="Rahmen Meeresbiologie", text="Korallen",
                             submission_mode="framework", link="http://x/other")
 
-    monkeypatch.setattr(main, "collect", lambda cfg: [fitting, unrelated])
+    monkeypatch.setattr(pipeline, "collect", _collecting([fitting, unrelated]))
     monkeypatch.setattr(matching, "match_profile", lambda *a, **k: [])
     monkeypatch.setattr(profiles_module, "load_profiles", lambda d, only=None: [
         Profile(id="p", name="P", groesse="kmu", themen=[Theme("künstliche Intelligenz", 3)],
@@ -140,7 +153,7 @@ def test_a_framework_is_not_offered_for_matching(config, monkeypatch, tmp_path):
     open_call = FundingCall(source="S", title="Aufruf künstliche Intelligenz", text="KI",
                             submission_mode="continuous", link="http://x/open")
 
-    monkeypatch.setattr(main, "collect", lambda cfg: [framework, open_call])
+    monkeypatch.setattr(pipeline, "collect", _collecting([framework, open_call]))
     monkeypatch.setattr(profiles_module, "load_profiles", lambda d, only=None: [
         Profile(id="p", name="P", groesse="kmu", themen=[Theme("künstliche Intelligenz", 3)],
                 cloud_erlaubt=True)

@@ -126,9 +126,9 @@ def test_a_listing_that_is_simply_empty_is_not_an_error(monkeypatch):
     assert gov._listing_urls("http://x/listing", "/marker/") == []
 
 
-def test_an_unreadable_source_is_reported_and_does_not_stop_the_run(tmp_path, monkeypatch, capsys):
+def test_an_unreadable_source_is_reported_and_does_not_stop_the_run(tmp_path, monkeypatch, caplog):
     """The run continues, but it says plainly that its results are incomplete."""
-    from fue_monitoring import main
+    from fue_monitoring import pipeline
     from fue_monitoring.models import FundingCall
 
     def fetch(source_config, *a, **k):
@@ -139,15 +139,17 @@ def test_an_unreadable_source_is_reported_and_does_not_stop_the_run(tmp_path, mo
     monkeypatch.setattr(gov, "fetch", fetch)
 
     config = {
-        "keywords": [], "eu_portal": {"enabled": False}, "llm": {"enabled": False},
+        "keywords": [], "min_funding_rate_percent": 0, "open_deadlines_only": False,
+        "deadline_warning_days": 14, "eu_portal": {"enabled": False}, "llm": {"enabled": False},
         "manual_import": {"enabled": False}, "foerderinfo_newsletter": {"enabled": False},
         "gov_bekanntmachungen": {"enabled": True, "brave_api_key": "",
                                  "sources": [{"name": "Broken"}, {"name": "Working"}]},
         "cache": {"enabled": False, "path": str(tmp_path / "p.json"), "max_age_days": 30},
         "profiles": None,
     }
-    entries = main.collect(config)
-    out = capsys.readouterr().out
+    with caplog.at_level("WARNING", logger="fue_monitoring.pipeline"):
+        entries = pipeline.collect(config).calls
+    logged = " ".join(r.message for r in caplog.records)
 
     assert len(entries) == 1, "the working source still contributes"
-    assert "incomplete" in out and "Broken" in out
+    assert "incomplete" in logged and "Broken" in logged

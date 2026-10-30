@@ -12,7 +12,9 @@ import json
 from datetime import date
 
 import pytest
+import requests
 
+from fue_monitoring import http
 from fue_monitoring.sources import foerderinfo_newsletter as nl
 
 TEASER = """
@@ -204,7 +206,7 @@ def test_a_known_issue_is_never_fetched_twice(source, monkeypatch):
         fetched.append(url)
         return Resp(archive if "archive" in url else TEASER)
 
-    monkeypatch.setattr(nl.requests, "get", fake_get)
+    monkeypatch.setattr(http.requests, "get", fake_get)
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
 
     first = nl.fetch(source, ["Dekarbonisierung"])
@@ -221,7 +223,7 @@ def test_the_same_publication_in_two_issues_is_reported_once(source, monkeypatch
     """A call reappears in a later issue's "Aktuelle Bewerbungsfristen" section."""
     archive = ('<a href="/foerderinfo/shareddocs/newsletter/i1/i1.html">1</a>'
                '<a href="/foerderinfo/shareddocs/newsletter/i2/i2.html">2</a>')
-    monkeypatch.setattr(nl.requests, "get",
+    monkeypatch.setattr(http.requests, "get",
                         lambda url, **k: Resp(archive if "archive" in url else TEASER))
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
 
@@ -231,9 +233,9 @@ def test_the_same_publication_in_two_issues_is_reported_once(source, monkeypatch
 
 def test_an_unreachable_archive_yields_nothing_rather_than_raising(source, monkeypatch):
     def boom(url, **kwargs):
-        raise nl.requests.exceptions.ConnectionError("down")
+        raise requests.exceptions.ConnectionError("down")
 
-    monkeypatch.setattr(nl.requests, "get", boom)
+    monkeypatch.setattr(http.requests, "get", boom)
     assert nl.fetch(source, []) == []
 
 
@@ -246,6 +248,6 @@ def test_one_bad_issue_does_not_cost_the_others(source, monkeypatch):
             return Resp(archive)
         return Resp("", 500) if "bad" in url else Resp(TEASER)
 
-    monkeypatch.setattr(nl.requests, "get", fake_get)
+    monkeypatch.setattr(http.requests, "get", fake_get)
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
     assert len(nl.fetch(source, [])) == 1

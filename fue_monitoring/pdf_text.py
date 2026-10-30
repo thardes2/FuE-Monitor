@@ -11,11 +11,14 @@ teaser: no funding rate, and too little text for profile matching to judge them 
 
 from __future__ import annotations
 
+import logging
 import io
 import re
 
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
+
+log = logging.getLogger(__name__)
 
 # Below this, extraction didn't really work: a scanned-image PDF yields a handful of
 # characters per page rather than nothing at all, which would otherwise be cached and
@@ -50,7 +53,7 @@ def extract_text(content: bytes) -> str | None:
         reader = PdfReader(io.BytesIO(content))
         pages = [page.extract_text() or "" for page in reader.pages]
     except (PyPdfError, ValueError, OSError, KeyError, RecursionError) as exc:
-        print(f"    (could not read PDF: {type(exc).__name__}: {exc})")
+        log.warning(f"    (could not read PDF: {type(exc).__name__}: {exc})")
         return None
 
     # Collapsed because PDF text extraction litters the output with line breaks
@@ -61,6 +64,6 @@ def extract_text(content: bytes) -> str | None:
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     if len(text) < MIN_USABLE_CHARS:
-        print(f"    (PDF yielded only {len(text)} characters — treated as unreadable)")
+        log.warning(f"    (PDF yielded only {len(text)} characters — treated as unreadable)")
         return None
     return text

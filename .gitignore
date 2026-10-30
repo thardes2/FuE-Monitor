@@ -14,3 +14,8 @@ profiles/*
 # Per-profile review state and reports
 state/review_*.json
 output/*/
+
+# Build artefacts from `pip install .`
+build/
+dist/
+*.egg-info/

@@ -7,9 +7,8 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
 
-from fue_monitoring import llm_extract, matching
+from fue_monitoring import http, llm_extract, matching
 from fue_monitoring.cache import PageCache
 
 OLLAMA = {"backend": "ollama", "ollama": {"model": "qwen3.8:latest"}}
@@ -101,7 +100,7 @@ def _gov_with_cached_pages(tmp_path, monkeypatch, urls, backend_config):
         raise AssertionError("re-crawled a page that was already cached")
 
     sleeps: list[float] = []
-    monkeypatch.setattr(gov.requests, "get", boom)
+    monkeypatch.setattr(http.requests, "get", boom)
     monkeypatch.setattr(gov.time, "sleep", lambda s: sleeps.append(s))
     monkeypatch.setattr(gov, "_listing_urls", lambda *a, **k: list(urls))
     monkeypatch.setattr(
@@ -173,7 +172,7 @@ def test_the_listing_page_is_not_collected_as_an_announcement(monkeypatch):
         status_code = 200
         text = html
 
-    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
 
     found = gov._listing_urls(listing, "/service/bekanntmachungen/")
     assert found == [f"{listing}foerderrichtlinie-digital-tech-to-product"]
@@ -191,5 +190,5 @@ def test_a_marker_that_does_not_match_the_listing_is_unaffected(monkeypatch):
         status_code = 200
         text = f'<html><body><main><a href="{target}">x</a></main></body></html>'
 
-    monkeypatch.setattr(gov.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
     assert gov._listing_urls(listing, "/Foerderungen-Auftraege/") == [target]

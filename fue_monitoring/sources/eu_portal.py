@@ -13,12 +13,15 @@ with a 'deadlineDate' are treated as an actual call with a deadline.
 from __future__ import annotations
 
 import json
+import logging
 
 import requests
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 
 from ..models import FundingCall
+
+log = logging.getLogger(__name__)
 
 SEARCH_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
 HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring)", "Content-Type": "application/json"}
@@ -117,7 +120,7 @@ def fetch(keywords: list[str], page_size: int = 100, max_pages: int = 3) -> list
 
     for keyword in keywords:
         for page in range(1, max_pages + 1):
-            print(f"  (EU Portal: Searching for '{keyword}' on page {page}...)")
+            log.info(f"  (EU Portal: Searching for '{keyword}' on page {page}...)")
             data = _fetch_page(keyword, page, page_size)
             results = data.get("results", [])
             if not results:

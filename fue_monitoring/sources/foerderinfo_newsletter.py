@@ -26,6 +26,7 @@ less text than a full announcement.
 
 from __future__ import annotations
 
+import logging
 import json
 import time
 from dataclasses import dataclass
@@ -33,12 +34,13 @@ from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-import requests
 from bs4 import BeautifulSoup
 
 from .. import http, llm_extract, pdf_text
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
+
+log = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring; personal R&D funding monitoring)"}
 
@@ -87,7 +89,7 @@ class IssueStore:
             try:
                 self._issues = json.loads(self.path.read_text(encoding="utf-8")).get("issues", {})
             except (json.JSONDecodeError, OSError) as exc:
-                print(f"  (newsletter state at {self.path} unreadable, starting empty: {exc})")
+                log.warning(f"  (newsletter state at {self.path} unreadable, starting empty: {exc})")
 
     def known(self, issue_url: str) -> bool:
         return issue_url in self._issues
@@ -136,7 +138,7 @@ def _issue_urls(archive_url: str) -> list[str]:
     if resp is None or resp.status_code != 200:
         # Not fatal: issues already read are still in the store, so the run keeps the
         # calls it knows and only misses whatever was published since.
-        print("  (newsletter archive unreadable — using the issues already read)")
+        log.warning("  (newsletter archive unreadable — using the issues already read)")
         return []
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -282,7 +284,7 @@ def _full_text(url: str, llm_config: dict | None, cache, allowed_hosts: list[str
         if result is None:
             # Same rule as the page cache everywhere else: a failed extraction is
             # never stored, so a backend outage doesn't freeze a degraded result.
-            print("    (extraction failed, keeping the newsletter teaser's fields)")
+            log.warning("    (extraction failed, keeping the newsletter teaser's fields)")
             return cached
         _, funding_rate, funding_rate_percent, deadline, deadlines, mode = llm_extract.merge(
             result, "", funding_rate, funding_rate_percent, deadline
@@ -338,7 +340,7 @@ def fetch(source_config: dict, keywords: list[str], llm_config: dict | None = No
     crawl_delay = source_config.get("crawl_delay", 30)
 
     fresh = [u for u in _issue_urls(source_config["archive_url"]) if not store.known(u)]
-    print(f"  {len(fresh)} new newsletter issue(s) to read")
+    log.info(f"  {len(fresh)} new newsletter issue(s) to read")
 
     for number, url in enumerate(fresh):
         if number:
@@ -350,7 +352,7 @@ def fetch(source_config: dict, keywords: list[str], llm_config: dict | None = No
         entries, skipped = parse_issue(resp.text)
         store.remember(url, entries)
         note = f", skipped {len(skipped)} non-funding ({', '.join(sorted(set(skipped)))})" if skipped else ""
-        print(f"    {url.rsplit('/', 1)[-1][:52]}: {len(entries)} call(s){note}")
+        log.info(f"    {url.rsplit('/', 1)[-1][:52]}: {len(entries)} call(s){note}")
 
     store.save()
 
@@ -375,6 +377,6 @@ def fetch(source_config: dict, keywords: list[str], llm_config: dict | None = No
             if enriched < len(unique):
                 time.sleep(source_config.get("full_text_delay", 5))
 
-    print(f"  (Förderinfo-Newsletter: {len(unique)} call(s) from {store.issue_count} "
+    log.info(f"  (Förderinfo-Newsletter: {len(unique)} call(s) from {store.issue_count} "
           f"remembered issue(s), {enriched} with the full announcement text)")
     return list(unique.values())

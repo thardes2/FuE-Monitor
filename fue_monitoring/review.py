@@ -14,12 +14,15 @@ Reading happens before the new Excel is written, so the sequence is:
 
 from __future__ import annotations
 
+import logging
 import json
 from pathlib import Path
 
 from openpyxl import load_workbook
 
 from .models import FundingCall
+
+log = logging.getLogger(__name__)
 
 REVIEW_HEADER = "Review"
 LINK_HEADER = "Link"
@@ -65,7 +68,7 @@ def _read_marks_from_excel(xlsx_path: Path) -> dict[str, str]:
                 marks[str(link)] = str(review).strip()
         return marks
     except (OSError, ValueError, KeyError) as exc:
-        print(f"  (could not read review marks from {xlsx_path}: {exc})")
+        log.warning(f"  (could not read review marks from {xlsx_path}: {exc})")
         return {}
 
 
@@ -84,7 +87,7 @@ class ReviewState:
             try:
                 self._marks = json.loads(self.path.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError) as exc:
-                print(f"  (review state at {self.path} unreadable, starting empty: {exc})")
+                log.warning(f"  (review state at {self.path} unreadable, starting empty: {exc})")
 
         # Whatever is in the Excel right now is what you last typed, so it wins.
         if xlsx_path is not None:

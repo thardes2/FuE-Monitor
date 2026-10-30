@@ -14,7 +14,7 @@ from datetime import date
 
 import pytest
 
-from fue_monitoring import llm_extract, pdf_text
+from fue_monitoring import http, llm_extract, pdf_text
 from fue_monitoring.cache import PageCache
 from fue_monitoring.sources import foerderinfo_newsletter as nl
 
@@ -125,7 +125,7 @@ def test_a_call_on_an_unlisted_host_keeps_its_teaser(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("fetched a host that is not on the allowlist")
 
-    monkeypatch.setattr(nl.requests, "get", lambda url, **k: Resp(ARCHIVE) if "archive" in url else Resp(ISSUE))
+    monkeypatch.setattr(http.requests, "get", lambda url, **k: Resp(ARCHIVE) if "archive" in url else Resp(ISSUE))
     source = {"archive_url": "http://x/archive", "state_path": str(tmp_path / "s.json"),
               "crawl_delay": 0, "full_text_hosts": [], "full_text_delay": 0}
     calls = nl.fetch(source, [])
@@ -221,7 +221,7 @@ def test_a_document_is_downloaded_once_and_re_derived_afterwards(source, tmp_pat
             return Resp(content=b"%PDF-1.7", content_type="application/pdf")
         return Resp(ISSUE)
 
-    monkeypatch.setattr(nl.requests, "get", fake_get)
+    monkeypatch.setattr(http.requests, "get", fake_get)
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
     monkeypatch.setattr(pdf_text, "extract_text", lambda content: "Förderquote 50 %. " * 40)
     monkeypatch.setattr(llm_extract, "extract",
@@ -247,7 +247,7 @@ def test_a_document_is_downloaded_once_and_re_derived_afterwards(source, tmp_pat
 
 def test_a_failed_extraction_is_not_cached(source, tmp_path, monkeypatch):
     """Otherwise a backend outage would freeze a rate-less result for 30 days."""
-    monkeypatch.setattr(nl.requests, "get",
+    monkeypatch.setattr(http.requests, "get",
                         lambda url, **k: Resp(ARCHIVE) if "archive" in url
                         else (Resp(content=b"%PDF-1.7", content_type="application/pdf")
                               if "bundesanzeiger" in url else Resp(ISSUE)))
@@ -279,7 +279,7 @@ def test_a_wrapper_page_is_followed_to_the_pdf_once(source, tmp_path, monkeypatc
             return Resp(wrapper, content_type="text/html")
         return Resp(ISSUE)
 
-    monkeypatch.setattr(nl.requests, "get", fake_get)
+    monkeypatch.setattr(http.requests, "get", fake_get)
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
     monkeypatch.setattr(pdf_text, "extract_text", lambda content: "Volltext " * 200)
 
@@ -299,7 +299,7 @@ def test_a_wrapper_page_that_links_elsewhere_is_not_followed(source, tmp_path, m
             return Resp(ARCHIVE)
         return Resp(wrapper, content_type="text/html") if "bundesanzeiger" in url else Resp(ISSUE)
 
-    monkeypatch.setattr(nl.requests, "get", fake_get)
+    monkeypatch.setattr(http.requests, "get", fake_get)
     monkeypatch.setattr(nl.time, "sleep", lambda s: None)
     calls = nl.fetch(source, [], None, PageCache(tmp_path / "pages.json"))
     assert "Teaser" in next(c for c in calls).text

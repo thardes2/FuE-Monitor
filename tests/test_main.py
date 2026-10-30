@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from fue_monitoring import main, matching, profile_report
+from fue_monitoring import main, matching, pipeline, profile_report
 from fue_monitoring import profiles as profiles_module
 from fue_monitoring.profiles import Profile, Theme
 
@@ -26,7 +26,10 @@ def make_profile(pid: str, term: str, cloud: bool) -> Profile:
 def spy(monkeypatch):
     """Records the keywords each collect() call was given."""
     calls: list[list[str]] = []
-    monkeypatch.setattr(main, "collect", lambda cfg: calls.append(list(cfg["keywords"])) or [])
+    monkeypatch.setattr(
+        pipeline, "collect",
+        lambda cfg: calls.append(list(cfg["keywords"])) or pipeline.CollectionResult(),
+    )
     monkeypatch.setattr(matching, "match_profile", lambda *a, **k: [])
     monkeypatch.setattr(
         profile_report, "write_reports",

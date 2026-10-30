@@ -16,12 +16,15 @@ to show.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 
 from ..models import FundingCall
+
+log = logging.getLogger(__name__)
 
 SOURCE_NAME = "Static catalogue (not crawlable)"
 
@@ -109,7 +112,7 @@ def fetch(path: str | Path, today: date | None = None) -> list[FundingCall]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
-        print(f"  (static programme catalogue {path.name} is not valid YAML: {exc})")
+        log.info(f"  (static programme catalogue {path.name} is not valid YAML: {exc})")
         return []
 
     entries = [_to_funding_call(item, today) for item in (raw.get("programme") or [])]
