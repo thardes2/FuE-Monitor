@@ -130,9 +130,9 @@ def test_unsupported_keys_are_refused(tmp_path):
 
 
 def test_a_supported_key_is_accepted(tmp_path):
-    loaded = load_profile(write(tmp_path, min_score=40, rolle="Werkzeuganbieter",
+    loaded = load_profile(write(tmp_path, min_score=40, description="Werkzeuganbieter",
                                 sicp_ansprechpartner="Max Mustermann"))
-    assert loaded.min_score == 40 and loaded.rolle == "Werkzeuganbieter"
+    assert loaded.min_score == 40 and loaded.description == "Werkzeuganbieter"
 
 
 def test_notes_can_be_parked_under_notizen(tmp_path):

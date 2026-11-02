@@ -15,7 +15,7 @@ VALID = """
 id: musterwerk
 name: Musterwerk GmbH
 groesse: kmu
-rolle: Entwicklungspartner
+description: Entwicklungspartner
 themen:
   - begriff: "KI"
     gewicht: 3
@@ -37,7 +37,7 @@ def write(tmp_path: Path, text: str, name: str = "p.yaml") -> Path:
 
 def test_loads_all_fields(tmp_path):
     p = load_profile(write(tmp_path, VALID))
-    assert (p.id, p.name, p.groesse, p.rolle) == ("musterwerk", "Musterwerk GmbH", "kmu", "Entwicklungspartner")
+    assert (p.id, p.name, p.groesse, p.description) == ("musterwerk", "Musterwerk GmbH", "kmu", "Entwicklungspartner")
     assert p.themen == [Theme("KI", 3), Theme("Mobilität*", 1)]
     assert p.ausschluss == ["Medizinprodukt*"]
     assert p.programme_bevorzugt == ["ZIM"]
@@ -127,7 +127,7 @@ def test_missing_directory_is_an_error(tmp_path):
 
 
 def base() -> Profile:
-    return Profile(id="a", name="A", groesse="kmu", rolle="Partner",
+    return Profile(id="a", name="A", groesse="kmu", description="Partner",
                    themen=[Theme("KI", 3)], ausschluss=["Wehrtechnik*"],
                    eigenanteil_max_prozent=50, sicp_ansprechpartner="Max")
 
@@ -155,7 +155,7 @@ def test_cosmetic_changes_keep_cached_evaluations(change):
         lambda p: setattr(p, "themen", [Theme("Robotik*", 3)]),  # term changed
         lambda p: setattr(p, "ausschluss", []),
         lambda p: setattr(p, "groesse", "grossunternehmen"),
-        lambda p: setattr(p, "rolle", "Anwender"),
+        lambda p: setattr(p, "description", "Anwender"),
         lambda p: setattr(p, "eigenanteil_max_prozent", 30),
     ],
 )
@@ -164,6 +164,21 @@ def test_matching_relevant_changes_invalidate_the_cache(change):
     before = p.hash
     change(p)
     assert p.hash != before
+
+
+def test_renaming_rolle_to_description_kept_every_hash():
+    """Pinned to the value the code produced while the field was still "rolle".
+    A changed hash would have discarded every cached evaluation — one LLM call
+    each — for a change of name only."""
+    assert base().hash == "becffca94027410d"
+
+
+def test_the_old_key_rolle_is_refused_with_its_new_name(tmp_path):
+    """The general "unknown key" message would list every supported key and leave
+    the reader to work out which one was meant."""
+    old = VALID.replace("description:", "rolle:")
+    with pytest.raises(ProfileError, match="'rolle' has been renamed to 'description'"):
+        load_profile(write(tmp_path, old))
 
 
 def test_theme_order_does_not_matter():

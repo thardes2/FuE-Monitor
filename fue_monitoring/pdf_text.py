@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import io
 import re
+from urllib.parse import urlparse
 
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
@@ -32,6 +33,22 @@ MIN_USABLE_CHARS = 400
 # same word — German compounds legitimately end a line with a hyphen before "und",
 # "oder" and the like ("Forschungs- und Entwicklungsvorhaben"), which must stay.
 _HYPHEN_BREAK = re.compile(r"(\w)-\n(?!und\b|oder\b|bzw\b|sowie\b|beziehungsweise\b)([a-zäöüß])")
+
+
+def is_same_document_pdf(page_url: str, target_url: str) -> bool:
+    """Whether `target_url` is the PDF download of the wrapper page at `page_url`.
+
+    The Government Site Builder that bmv.de (and many other bund.de sites) run on
+    publishes an attachment as an HTML wrapper "…/Anlage/E/foo.html" carrying its title
+    and one download link, "…/Anlage/E/foo.pdf?__blob=publicationFile". Same host, same
+    directory, same file stem: that is what identifies the download, so other PDFs the
+    page links (forms, an English version, a factsheet) are never mistaken for it.
+    """
+    page, target = urlparse(page_url), urlparse(target_url)
+    if page.netloc.lower() != target.netloc.lower():
+        return False
+    page_path = page.path[:-5] if page.path.lower().endswith(".html") else page.path
+    return bool(page_path) and target.path.lower() == f"{page_path}.pdf".lower()
 
 
 def looks_like_pdf(content: bytes, content_type: str = "") -> bool:

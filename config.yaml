@@ -150,6 +150,51 @@ gov_bekanntmachungen:
       # wrong when the ministry renames a category.
       crawl_delay: 5 # bmds.bund.de's robots.txt disallows only /typo3/ and sets no delay
 
+    - name: "BMV (Verkehr) Förderaufrufe und -richtlinien"
+      # Checked 2026-11-02. bmv.de (bmdv.bund.de redirects there) has no announcement
+      # listing — DE/Service/Foerderprojekte/ lists 23 programme pages without calls
+      # or deadlines, and the sitemap holds only 336 pages. Its site search, though,
+      # IS allowed: robots.txt disallows only /_SUMP/ and /_BVMFOR/, no Crawl-delay,
+      # and there is no bot-detection. So the search page serves as the listing,
+      # once per term, restricted to attachments ("Publication--Anlagen") and
+      # sorted newest first. Each result is a wrapper page whose call is a PDF.
+      discovery: listing
+      listing_url: "https://www.bmv.de/SiteGlobals/Forms/Suche/DE/Expertensuche_Formular.html?templateQueryString={term}&documentType_=Publication--Anlagen&documentType_.GROUP=1&selectSort=commonSortDate_dt+desc&selectSort.GROUP=1"
+      listing_terms:
+        - "Förderaufruf"
+        - "Förderrichtlinie"
+        - "Aufruf zur Skizzeneinreichung"
+        - "Aufruf zur Antragseinreichung"
+        - "Richtlinie über Zuwendungen"
+      # Without a leading slash on purpose: each result links its title page
+      # relatively ("SharedDocs/DE/Anlage/E/foo.html") and its PDF absolutely
+      # ("/SharedDocs/…/foo.pdf?__blob=…", link text "Download"). We want the title
+      # page — it names the document — and the include list below drops the
+      # "Download" links.
+      link_path_marker: "SharedDocs/DE/Anlage/"
+      # The attachments these terms find are mostly not calls: factsheets, reviewer
+      # matrices, outline templates, English versions, minutes, an organisation
+      # chart. Each one followed costs two requests plus an LLM call, so the link
+      # text has to name a call or a Richtlinie. Run with -v to see what was left out.
+      link_text_include: ["aufruf", "richtlinie", "bekanntmachung"]
+      link_text_exclude:
+        - "factsheet"
+        - "kurzübersicht"
+        - "faq"
+        - "gutachtermatrix"
+        - "gliederungsvorlage"
+        - "vorlage"
+        - "englisch"
+        - "english"
+        - "niederschrift"
+      # The result is "…/Anlage/E/foo.html", a wrapper with the title and one download
+      # link; the text comes from "foo.pdf?__blob=publicationFile". Measured on the
+      # PioDAK Förderaufruf: 16.7 kB of clean text, submission window included.
+      document_pdf: true
+      # No Crawl-delay is set, but the server is slow: 20 s responses and timeouts
+      # after 30–45 s were measured, which http.py's retries absorb.
+      crawl_delay: 5
+
     # NOT bundeswirtschaftsministerium.de (BMWE/BMWK): every page on that domain,
     # including the plain homepage, redirects to validate.perfdrive.com — the same
     # Radware Bot Manager challenge foerderdatenbank.de uses. It's not a robots.txt
@@ -211,6 +256,9 @@ foerderinfo_newsletter:
   # HTML page.
   full_text_hosts:
     - "www.bundesanzeiger.de" # robots.txt disallows only /nlp and /construction_page.html, no Crawl-delay
+    # BMV teasers link their Förderaufruf as a PDF on bmv.de itself (measured: PioDAK,
+    # ".../Anlage/E/foerderaufruf-1-piodak.pdf?__blob=publicationFile").
+    - "www.bmv.de" # robots.txt disallows only /_SUMP/ and /_BVMFOR/, no Crawl-delay
   full_text_delay: 5 # no Crawl-delay is specified there; spaced out of courtesy
 
 llm:

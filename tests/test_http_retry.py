@@ -117,13 +117,13 @@ def test_an_unreadable_listing_raises_rather_than_returning_nothing(monkeypatch)
                         lambda url, **k: (_ for _ in ()).throw(requests.exceptions.ConnectionError("reset")))
 
     with pytest.raises(gov.ListingUnavailable):
-        gov._listing_urls("http://x/listing", "/marker/")
+        gov._listing_links("http://x/listing", "/marker/")
 
 
 def test_a_listing_that_is_simply_empty_is_not_an_error(monkeypatch):
     monkeypatch.setattr(http.requests, "get",
                         lambda url, **k: Resp(200, "<html><body><main></main></body></html>"))
-    assert gov._listing_urls("http://x/listing", "/marker/") == []
+    assert gov._listing_links("http://x/listing", "/marker/") == []
 
 
 def test_an_unreadable_source_is_reported_and_does_not_stop_the_run(tmp_path, monkeypatch, caplog):

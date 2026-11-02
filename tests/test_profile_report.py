@@ -20,7 +20,7 @@ GENERATED = datetime(2026, 10, 27, 9, 30)
 
 def profile() -> Profile:
     return Profile(
-        id="musterwerk", name="Musterwerk GmbH", groesse="kmu", rolle="Entwicklungspartner",
+        id="musterwerk", name="Musterwerk GmbH", groesse="kmu", description="Entwicklungspartner",
         themen=[Theme("KI", 3)], sicp_ansprechpartner="Max Mustermann",
     )
 

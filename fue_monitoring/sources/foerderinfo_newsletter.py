@@ -223,11 +223,17 @@ def _host_allowed(url: str, allowed_hosts: list[str]) -> bool:
 
 
 def _follow_to_document(resp, allowed_hosts: list[str]):
-    """Follows a wrapper page to the PDF it links to. One hop, same host, or None."""
+    """Follows a wrapper page to the PDF it links to. One hop, same host, or None.
+
+    Two wrapper shapes are known: the Bundesanzeiger's bookmark page, linking the PDF
+    under ".../content/....pdf", and a Government Site Builder attachment page
+    (bmv.de's ".../Anlage/E/foo.html"), linking "foo.pdf?__blob=publicationFile".
+    """
     soup = BeautifulSoup(resp.text, "html.parser")
     for anchor in soup.find_all("a", href=True):
         target = urljoin(resp.url, anchor["href"])
-        if "/content/" not in target or not target.lower().endswith(".pdf"):
+        banz_pdf = "/content/" in target and target.lower().endswith(".pdf")
+        if not banz_pdf and not pdf_text.is_same_document_pdf(resp.url, target):
             continue
         if not _host_allowed(target, allowed_hosts):
             continue

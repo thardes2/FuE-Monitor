@@ -17,18 +17,31 @@ of two discovery modes, chosen per-site based on what its own robots.txt allows:
 Either way, each discovered announcement page is fetched directly and its main
 content text runs through the same regex + optional Gemini extraction used
 elsewhere in this project.
+
+Three optional settings make "listing" fit a site without a listing page of its
+own, such as bmv.de, whose announcements are only findable through its site search:
+
+- `listing_terms`: the listing URL contains "{term}" and is fetched once per term,
+  so a search page can serve as the listing.
+- `link_text_include` / `link_text_exclude`: a link is only followed if its text
+  contains one of the first and none of the second. Search results mix the calls
+  with factsheets, templates and English versions, and each one followed costs
+  downloads plus an LLM call.
+- `document_pdf`: the discovered page is a wrapper for a PDF attachment, and the
+  text comes from that PDF (see pdf_text.is_same_document_pdf).
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from urllib.parse import urlencode, urljoin
+from urllib.parse import quote_plus, urlencode, urljoin
 
 from bs4 import BeautifulSoup
 
-from .. import http, llm_extract
+from .. import http, llm_extract, pdf_text
 from ..cache import PageCache
+from ..dedup import canonical_link
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
 
@@ -120,7 +133,34 @@ def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_result
     return urls
 
 
-def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
+def _listing_pages(source_config: dict) -> list[str]:
+    """The listing URL, or one per term where the listing is a search page."""
+    listing_url = source_config["listing_url"]
+    terms = source_config.get("listing_terms") or []
+    if not terms:
+        return [listing_url]
+    if "{term}" not in listing_url:
+        raise ValueError(
+            f"Source '{source_config['name']}' sets listing_terms, but its listing_url "
+            "has no {term} placeholder to put them in"
+        )
+    return [listing_url.replace("{term}", quote_plus(term)) for term in terms]
+
+
+def _link_text_admitted(text: str, include: list[str], exclude: list[str]) -> bool:
+    """Case-insensitive substring test on a link's text. No include list admits all."""
+    lowered = text.lower()
+    if include and not any(word.lower() in lowered for word in include):
+        return False
+    return not any(word.lower() in lowered for word in exclude)
+
+
+def _listing_links(listing_url: str, link_marker: str) -> list[tuple[str, str]]:
+    """(url, link text) for every announcement link on a listing page.
+
+    The text is the longest one any anchor to that URL carries: a search result
+    often links the same document from a thumbnail with no text at all.
+    """
     # A failure here costs the whole source for this run, so it is worth the wait —
     # measured: one reset on the first contact with ble.de reported the ministry as
     # having published nothing at all.
@@ -139,7 +179,6 @@ def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
     base_url = base_tag["href"] if base_tag else listing_url
 
     main = _main_content(soup)
-    urls = [urljoin(base_url, a["href"]) for a in main.find_all("a", href=True) if link_marker in a["href"]]
 
     # Drop the listing page itself. Where the marker is a path the listing lives
     # under — bmds.bund.de's "/service/bekanntmachungen/" is both — its own
@@ -147,7 +186,19 @@ def _listing_urls(listing_url: str, link_marker: str) -> list[str]:
     # fetched, LLM-evaluated and reported as an announcement of its own, carrying
     # every real announcement's teaser text as its content.
     own = _canonical(listing_url)
-    return list(dict.fromkeys(u for u in urls if _canonical(u) != own))
+    links: dict[str, str] = {}
+    for anchor in main.find_all("a", href=True):
+        if link_marker not in anchor["href"]:
+            continue
+        url = urljoin(base_url, anchor["href"])
+        if _canonical(url) == own:
+            continue
+        text = anchor.get_text(" ", strip=True)
+        if len(text) > len(links.get(url, "")):
+            links[url] = text
+        else:
+            links.setdefault(url, text)
+    return list(links.items())
 
 
 def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) -> dict:
@@ -192,18 +243,62 @@ def _extract_fields(text: str, title: str, url: str, llm_config: dict | None) ->
     }
 
 
-def _download_and_extract(url: str, llm_config: dict | None) -> dict | None:
-    """One HTTP request, then extraction over what came back."""
+def _attached_pdf_text(url: str, main, base_url: str, delay: float) -> str | None:
+    """The text of the PDF a wrapper page at `url` is the download page for, or None.
+
+    Only the PDF with the wrapper's own file stem is taken, never "the first PDF on
+    the page": a call's page also links forms and English versions.
+    """
+    target = next(
+        (
+            urljoin(base_url, anchor["href"])
+            for anchor in main.find_all("a", href=True)
+            if pdf_text.is_same_document_pdf(url, urljoin(base_url, anchor["href"]))
+        ),
+        None,
+    )
+    if target is None:
+        log.warning(f"    (no PDF download on wrapper page {url}, skipped)")
+        return None
+
+    # A second request to the same site, so spaced like any other.
+    time.sleep(delay)
+    resp = http.get(target, headers=HEADERS, timeout=60)
+    if resp is None or resp.status_code != 200:
+        return None
+    if not pdf_text.looks_like_pdf(resp.content, resp.headers.get("content-type", "")):
+        log.warning(f"    ({target} is not a PDF, skipped)")
+        return None
+    return pdf_text.extract_text(resp.content)
+
+
+def _download_and_extract(
+    url: str, llm_config: dict | None, document_pdf: bool = False, delay: float = 0
+) -> dict | None:
+    """Fetches the page — and, for a PDF wrapper, its PDF — then extracts the fields.
+
+    With document_pdf, a wrapper whose PDF can't be read yields None rather than
+    falling back to the wrapper's own text: that text is the title and a download
+    button, and an entry built on it would read "deadline not detected" for a call
+    that has one. None is not cached, so the next run tries again.
+    """
     resp = http.get(url, headers=HEADERS, timeout=30)
     if resp is None or resp.status_code != 200:
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
     main = _main_content(soup)
-    text = main.get_text(" ", strip=True)
-
     h1 = main.find("h1")
     title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(strip=True) if soup.title else url)
+
+    if document_pdf:
+        base_tag = soup.find("base", href=True)
+        text = _attached_pdf_text(url, main, base_tag["href"] if base_tag else url, delay)
+        if not text:
+            return None
+    else:
+        text = main.get_text(" ", strip=True)
+
     return _extract_fields(text, title, url, llm_config)
 
 
@@ -269,8 +364,31 @@ def fetch(
             ):
                 _remember_url(urls, url)
     elif discovery == "listing":
-        for url in _listing_urls(source_config["listing_url"], link_marker):
-            _remember_url(urls, url)
+        include = source_config.get("link_text_include") or []
+        exclude = source_config.get("link_text_exclude") or []
+        left_out: dict[str, str] = {}
+        for page_number, listing_page in enumerate(_listing_pages(source_config)):
+            if page_number:
+                time.sleep(crawl_delay)
+            # One unreadable search term raises like an unreadable listing: the
+            # source's results would be incomplete without saying so otherwise.
+            for url, text in _listing_links(listing_page, link_marker):
+                if _link_text_admitted(text, include, exclude):
+                    _remember_url(urls, url)
+                else:
+                    # Keyed per document, not per URL: a search result links both a
+                    # wrapper page and its PDF ("Download"), which are one document.
+                    key = canonical_link(url)
+                    if len(text) > len(left_out.get(key, "")):
+                        left_out[key] = text
+        # Named, not just counted, so a filter that starts eating real calls
+        # (after a ministry renames a document type) gets noticed.
+        admitted = {canonical_link(u) for u in urls.values()}
+        left_out = {k: t for k, t in left_out.items() if k not in admitted}
+        if left_out:
+            log.info(f"  ({name}: {len(left_out)} link(s) left out by link_text_include/exclude)")
+            for text in left_out.values():
+                log.debug(f"    left out: {text or '(no link text)'}")
     else:
         raise ValueError(f"Unknown discovery mode '{discovery}' for source '{name}'")
 
@@ -325,7 +443,10 @@ def fetch(
             # cache hits mustn't be slowed down by it.
             if downloaded > 0:
                 time.sleep(crawl_delay)
-            data = _download_and_extract(url, llm_config)
+            data = _download_and_extract(
+                url, llm_config,
+                document_pdf=bool(source_config.get("document_pdf")), delay=crawl_delay,
+            )
             downloaded += 1
             if data is None:
                 continue

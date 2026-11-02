@@ -72,7 +72,7 @@ def render_markdown(
         "",
         f"Stand: {generated_at.strftime('%d.%m.%Y %H:%M')}  ",
         f"Profil: `{profile.id}` · {profile.groesse.upper()}"
-        + (f" · {profile.rolle}" if profile.rolle else ""),
+        + (f" · {profile.description}" if profile.description else ""),
     ]
     if profile.sicp_ansprechpartner:
         lines.append(f"Ansprechpartner SICP: {profile.sicp_ansprechpartner}")
@@ -192,7 +192,7 @@ def render_html(
         f"<h1>Förderausschreibungen für {e(profile.name)}</h1>",
         f'<div class="meta">Stand: {generated_at.strftime("%d.%m.%Y %H:%M")} · '
         f"Profil <code>{e(profile.id)}</code> · {e(profile.groesse.upper())}"
-        + (f" · {e(profile.rolle)}" if profile.rolle else "")
+        + (f" · {e(profile.description)}" if profile.description else "")
         + (f" · Ansprechpartner: {e(profile.sicp_ansprechpartner)}" if profile.sicp_ansprechpartner else "")
         + "</div>",
         f"<p><strong>{s['total']} Treffer</strong> — davon {s['eligible']} als förderfähig bewertet, "

@@ -67,7 +67,7 @@ Answer in German (the report goes to German-speaking staff).
 COMPANY
 Name: {name}
 Size: {groesse}   (kmu = SME under the EU definition, grossunternehmen = large enterprise)
-Role: {rolle}
+Description: {description}
 Topics (weight 3 = core business, 1 = adjacent): {themen}
 Will not work on: {ausschluss}
 Preferred programmes: {programme}
@@ -420,7 +420,7 @@ def evaluate(
     prompt = PROMPT_TEMPLATE.format(
         name=profile.name,
         groesse=profile.groesse,
-        rolle=profile.rolle or "—",
+        description=profile.description or "—",
         themen=themen,
         # The prefilter only screens title and programme for these, so the
         # evaluation is where an exclusion buried in the text has to be caught.

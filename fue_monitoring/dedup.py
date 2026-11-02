@@ -51,10 +51,21 @@ def canonical_link(link: str) -> str:
     if path.lower().endswith(".html"):
         path = path[:-5]
 
+    params = parse_qsl(parsed.query, keep_blank_values=True)
+    decorative = _DECORATIVE_PARAMS
+    # A Government Site Builder attachment is one document under two URLs: the HTML
+    # wrapper ".../Anlage/E/foo.html" and its download ".../foo.pdf?__blob=
+    # publicationFile&v=2". The BMV source reaches it by the first, the Förderinfo
+    # newsletter links the second, and without this the same Förderaufruf turned up
+    # in a report twice. "v" is the file revision, decorative only here.
+    if path.lower().endswith(".pdf") and ("__blob", "publicationFile") in params:
+        path = path[:-4]
+        decorative = decorative | {"__blob", "v"}
+
     kept = sorted(
-        (name, value) for name, value in parse_qsl(parsed.query, keep_blank_values=True)
+        (name, value) for name, value in params
         # A purely numeric name is a framework artefact, such as Wicket's "?0".
-        if name not in _DECORATIVE_PARAMS and not name.isdigit()
+        if name not in decorative and not name.isdigit()
     )
     query = f"?{urlencode(kept)}" if kept else ""
 

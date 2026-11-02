@@ -84,7 +84,7 @@ def _run(cache, monkeypatch, extract_result):
     monkeypatch.setattr(http.requests, "get",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("re-crawled")))
     monkeypatch.setattr(gov.time, "sleep", lambda s: None)
-    monkeypatch.setattr(gov, "_listing_urls", lambda *a, **k: ["http://x/a.html"])
+    monkeypatch.setattr(gov, "_listing_links", lambda *a, **k: [("http://x/a.html", "")])
     monkeypatch.setattr(llm_extract, "extract", lambda *a, **k: extract_result)
     return gov.fetch(
         {"name": "T", "discovery": "listing", "listing_url": "http://x/list",

@@ -52,6 +52,32 @@ rate and deadline, and writes the result to an Excel file.
   text before committing to it: a site can be perfectly crawlable and still carry
   nothing worth extracting, because the call itself is a linked PDF.
 
+  **A site search as the listing, and calls that are PDFs — BMV.** `bmv.de` has no
+  announcement listing at all (its "Förderprojekte" page lists 23 programmes
+  without calls or deadlines), but its site search is allowed by robots.txt, which
+  disallows only `/_SUMP/` and `/_BVMFOR/` and sets no `Crawl-delay`. Three
+  optional `listing` settings make that usable, and none of them is BMV-specific:
+    - `listing_terms` — the `listing_url` contains `{term}` and is fetched once per
+      term. One term failing makes the whole source unreachable, as an unreadable
+      listing does, rather than reporting part of it as all of it.
+    - `link_text_include` / `link_text_exclude` — a result is followed only if its
+      link text names a call. The search, restricted to attachments, returns calls
+      next to factsheets, reviewer matrices, outline templates, English versions
+      and an organisation chart; each one followed costs two requests and an LLM
+      call. What the filter left out is counted on every run and named with `-v`,
+      so a filter that starts eating real calls gets noticed.
+    - `document_pdf` — the result is a Government Site Builder wrapper
+      (`…/Anlage/E/foo.html`: title and a download button) and the text comes from
+      its PDF, `foo.pdf?__blob=publicationFile`. Only the PDF with the wrapper's own
+      file stem is taken, never "the first PDF on the page", which is often a form.
+      A wrapper whose PDF can't be read yields no entry rather than one built on a
+      title — that would read "deadline not detected" for a call that has one.
+
+  Measured on the first run: 15 calls and Richtlinien (PioDAK, emissionsfreie
+  Busse, SUMP, DigiTest, mFUND, NIP Wasserstofftankstellen, …), 12–70 kB of text
+  each, with the deadlines the LLM read matching the documents. The same three
+  settings are what the BMWE portal `energieforschung.de` below was missing.
+
   **Ministries checked and deliberately left out** — recorded so the same ground
   isn't covered twice; the details sit in [config.yaml](config.yaml) next to the
   sources:
@@ -111,7 +137,13 @@ rate and deadline, and writes the result to an Excel file.
   teasers point at a dozen domains, and a host goes on that list only after its
   robots.txt has been checked. Where the newsletter links an older bookmark URL
   that lands on an HTML wrapper page, the PDF link is read off that page — one hop,
-  same host, never guessed from the id.
+  same host, never guessed from the id. `www.bmv.de` is on the list too: BMV teasers
+  link their Förderaufruf as a PDF on the ministry's own site.
+
+  A call that reaches us both ways — the newsletter linking
+  `…/foo.pdf?__blob=publicationFile`, the BMV source finding `…/foo.html` — is one
+  entry: [dedup.py](fue_monitoring/dedup.py) reads a Site Builder download URL as
+  the wrapper page it belongs to.
 
   Each PDF is downloaded once into the page cache and then re-derived from the
   stored text when the model or extraction prompt changes, exactly like a scraped
@@ -368,7 +400,7 @@ runs.
 One YAML per company in `profiles/`, modelled on
 [profiles/example.yaml](profiles/example.yaml). **These files hold confidential
 member data and are gitignored** — only the made-up `example.yaml` is in the
-repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`), `rolle`,
+repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`), `description`,
 `themen` (each `begriff` + `gewicht` 1–3), `ausschluss`, `programme_bevorzugt`,
 `eigenanteil_max_prozent`, `sicp_ansprechpartner`, `cloud_erlaubt`. A broken profile aborts the
 run rather than being skipped, because a silently skipped company is

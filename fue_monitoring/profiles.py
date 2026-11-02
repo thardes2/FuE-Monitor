@@ -31,15 +31,25 @@ VALID_SIZES = {"kmu", "grossunternehmen"}
 # setting that had no effect — false confidence is the thing to prevent here.
 # "notizen" is the escape hatch for anything genuinely meant as a note.
 KNOWN_KEYS = frozenset({
-    "id", "name", "groesse", "rolle", "themen", "ausschluss", "programme_bevorzugt",
+    "id", "name", "groesse", "description", "themen", "ausschluss", "programme_bevorzugt",
     "eigenanteil_max_prozent", "sicp_ansprechpartner", "min_score", "cloud_erlaubt",
     "notizen",
 })
 KNOWN_THEME_KEYS = frozenset({"begriff", "gewicht"})
+# Keys that were renamed, with their new name. Refused like any unknown key, but
+# with the one fix that applies, instead of the full list of supported keys.
+RENAMED_KEYS = {"rolle": "description"}
 
 
 def _reject_unknown(raw: dict, source: str) -> None:
     """Refuses keys nothing reads, at both levels a typo can hide in."""
+    renamed = sorted(set(raw) & set(RENAMED_KEYS))
+    if renamed:
+        raise ProfileError(
+            f"{source}: "
+            + "; ".join(f"'{old}' has been renamed to '{RENAMED_KEYS[old]}'" for old in renamed)
+            + " — rename the key in the profile file."
+        )
     unknown = sorted(set(raw) - KNOWN_KEYS)
     if unknown:
         raise ProfileError(
@@ -77,7 +87,7 @@ class Profile:
     id: str
     name: str
     groesse: str
-    rolle: str = ""
+    description: str = ""
     themen: list[Theme] = field(default_factory=list)
     ausschluss: list[str] = field(default_factory=list)
     programme_bevorzugt: list[str] = field(default_factory=list)
@@ -97,7 +107,10 @@ class Profile:
         """Stable fingerprint of the matching-relevant fields; used as cache key."""
         relevant = {
             "groesse": self.groesse,
-            "rolle": self.rolle,
+            # Still keyed "rolle", the field's name before it became "description":
+            # renaming the key would change every profile's hash and throw away all
+            # cached evaluations, each one an LLM call, for a change of name only.
+            "rolle": self.description,
             "themen": sorted((t.begriff, t.gewicht) for t in self.themen),
             "ausschluss": sorted(self.ausschluss),
             "programme_bevorzugt": sorted(self.programme_bevorzugt),
@@ -173,7 +186,7 @@ def _parse(raw: dict, source: str) -> Profile:
         id=profile_id,
         name=require("name"),
         groesse=groesse,
-        rolle=str(raw.get("rolle", "")).strip(),
+        description=str(raw.get("description", "")).strip(),
         themen=themen,
         ausschluss=[str(x).strip() for x in (raw.get("ausschluss") or []) if str(x).strip()],
         programme_bevorzugt=[str(x).strip() for x in (raw.get("programme_bevorzugt") or []) if str(x).strip()],

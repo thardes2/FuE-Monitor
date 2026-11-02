@@ -102,7 +102,7 @@ def _gov_with_cached_pages(tmp_path, monkeypatch, urls, backend_config):
     sleeps: list[float] = []
     monkeypatch.setattr(http.requests, "get", boom)
     monkeypatch.setattr(gov.time, "sleep", lambda s: sleeps.append(s))
-    monkeypatch.setattr(gov, "_listing_urls", lambda *a, **k: list(urls))
+    monkeypatch.setattr(gov, "_listing_links", lambda *a, **k: [(u, "") for u in urls])
     monkeypatch.setattr(
         llm_extract, "extract",
         lambda *a, **k: {"funding_rate_percent": 60, "deadlines": ["2026-04-30"], "title": None},
@@ -174,7 +174,7 @@ def test_the_listing_page_is_not_collected_as_an_announcement(monkeypatch):
 
     monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
 
-    found = gov._listing_urls(listing, "/service/bekanntmachungen/")
+    found = [u for u, _ in gov._listing_links(listing, "/service/bekanntmachungen/")]
     assert found == [f"{listing}foerderrichtlinie-digital-tech-to-product"]
 
 
@@ -191,4 +191,4 @@ def test_a_marker_that_does_not_match_the_listing_is_unaffected(monkeypatch):
         text = f'<html><body><main><a href="{target}">x</a></main></body></html>'
 
     monkeypatch.setattr(http.requests, "get", lambda *a, **k: Resp())
-    assert gov._listing_urls(listing, "/Foerderungen-Auftraege/") == [target]
+    assert [u for u, _ in gov._listing_links(listing, "/Foerderungen-Auftraege/")] == [target]
