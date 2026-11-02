@@ -60,6 +60,11 @@ class ProfileResult:
     # the Förderaufrufe published under them, but not scored.
     frameworks: list[FundingCall] = field(default_factory=list)
     min_score: int = 0
+    # Calls that passed the prefilter but whose LLM evaluation failed this run (rate
+    # limit, timeout, malformed answer). Not in `matches`, not cached. Kept apart for
+    # the same reason as CollectionResult.unreachable: a caller that stores results
+    # must not read "missing" as "no longer a match" — these simply weren't scored.
+    failed: list[FundingCall] = field(default_factory=list)
 
 
 def collect(config: dict) -> CollectionResult:
@@ -314,6 +319,7 @@ def _match_each(
         if profile.min_score is not None:
             log.info(f"  (min_score {min_score} from the profile)")
 
+        failed: list[FundingCall] = []
         matches = matching.match_profile(
             collection.open_calls,
             profile,
@@ -322,6 +328,7 @@ def _match_each(
             min_score=min_score,
             max_evaluations=profiles_config["max_evaluations_per_profile"],
             max_text_chars=profiles_config["max_text_chars"],
+            failed=failed,
         )
 
         state = review.ReviewState(
@@ -340,7 +347,8 @@ def _match_each(
         relevant = [c for c in collection.frameworks if matching.prefilter(c, profile).passed]
 
         results.append(ProfileResult(
-            profile=profile, matches=matches, frameworks=relevant, min_score=min_score
+            profile=profile, matches=matches, frameworks=relevant, min_score=min_score,
+            failed=failed,
         ))
 
     return results

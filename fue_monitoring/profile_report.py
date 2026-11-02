@@ -58,11 +58,22 @@ FRAMEWORK_NOTE = (
 )
 
 
+def _failed_note(count: int) -> str:
+    """Placed under the summary, not at the end: an incomplete report has to say so
+    before anyone reads its list of matches as complete."""
+    return (
+        f"Unvollständig: {count} thematisch passende Ausschreibung(en) konnten in diesem "
+        "Lauf nicht bewertet werden (Fehler bei der Modellabfrage, z. B. Rate-Limit). "
+        "Sie fehlen in der Trefferliste und werden beim nächsten Lauf erneut bewertet:"
+    )
+
+
 def render_markdown(
     profile: Profile,
     matches: list[Match],
     generated_at: datetime | None = None,
     frameworks: list | None = None,
+    failed: list | None = None,
 ) -> str:
     generated_at = generated_at or datetime.now()
     s = _summary(matches)
@@ -88,6 +99,10 @@ def render_markdown(
             "nicht im Ausschreibungstext wiedergefunden werden. Diese sind unten als "
             "*unbelegt* markiert und sollten vor Weitergabe geprüft werden."
         )
+    if failed:
+        lines += ["", f"> **{_failed_note(len(failed))}**", ">"]
+        for call in failed:
+            lines.append(f"> - [{call.title.replace('|', chr(92) + '|')}]({call.link}) — {call.source}")
 
     def framework_section() -> list[str]:
         if not frameworks:
@@ -178,6 +193,7 @@ def render_html(
     matches: list[Match],
     generated_at: datetime | None = None,
     frameworks: list | None = None,
+    failed: list | None = None,
 ) -> str:
     generated_at = generated_at or datetime.now()
     s = _summary(matches)
@@ -205,6 +221,13 @@ def render_html(
             "im Ausschreibungstext wiedergefunden werden. Diese sind unten als <em>unbelegt</em> "
             "markiert und sollten vor Weitergabe geprüft werden.</p>"
         )
+    if failed:
+        parts.append(f'<div class="warn"><p><strong>{e(_failed_note(len(failed)))}</strong></p><ul>')
+        for call in failed:
+            parts.append(
+                f'<li><a href="{e(call.link)}" target="_blank">{e(call.title)}</a> — {e(call.source)}</li>'
+            )
+        parts.append("</ul></div>")
 
     def framework_block() -> list[str]:
         if not frameworks:
@@ -275,12 +298,13 @@ def write_reports(
     output_dir: str | Path,
     generated_at: datetime | None = None,
     frameworks: list | None = None,
+    failed: list | None = None,
 ) -> tuple[Path, Path]:
     directory = Path(output_dir) / profile.id
     directory.mkdir(parents=True, exist_ok=True)
 
     md_path = directory / "report.md"
     html_path = directory / "report.html"
-    md_path.write_text(render_markdown(profile, matches, generated_at, frameworks), encoding="utf-8")
-    html_path.write_text(render_html(profile, matches, generated_at, frameworks), encoding="utf-8")
+    md_path.write_text(render_markdown(profile, matches, generated_at, frameworks, failed), encoding="utf-8")
+    html_path.write_text(render_html(profile, matches, generated_at, frameworks, failed), encoding="utf-8")
     return md_path, html_path

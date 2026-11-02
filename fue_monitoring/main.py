@@ -81,10 +81,16 @@ def run_profiles(config: dict, only: str | None) -> None:
     for result in pipeline.match_profiles(config, collection, loaded):
         md_path, html_path = profile_report.write_reports(
             result.profile, result.matches, profiles_config["output_dir"],
-            frameworks=result.frameworks,
+            frameworks=result.frameworks, failed=result.failed,
         )
         log.info(f"  {result.profile.name}: {len(result.matches)} match(es) -> {md_path}")
         log.info(f"  {' ' * len(result.profile.name)}  {html_path}")
+        if result.failed:
+            log.warning(
+                f"  {result.profile.name}: {len(result.failed)} call(s) could not be evaluated "
+                f"(LLM error, e.g. rate limit); the report lists them as not evaluated, "
+                f"and the next run evaluates them again."
+            )
 
 
 def mark(config: dict, profile_id: str, link: str, status: str) -> None:

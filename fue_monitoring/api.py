@@ -31,7 +31,8 @@ A minimal run:
     collection = api.collect(api.search_config_for(config, profiles))
     for result in api.match_profiles(config, collection, profiles):
         markdown = api.render_markdown(result.profile, result.matches,
-                                       frameworks=result.frameworks)
+                                       frameworks=result.frameworks,
+                                       failed=result.failed)
         ...  # store it, serve it, mail it
 
 Profile data is confidential, and `running_profiles()` enforces that: a profile only

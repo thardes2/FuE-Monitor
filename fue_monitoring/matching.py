@@ -451,8 +451,16 @@ def match_profile(
     min_score: int = 0,
     max_evaluations: int | None = None,
     max_text_chars: int = DEFAULT_MAX_TEXT_CHARS,
+    failed: list[FundingCall] | None = None,
 ) -> list[Match]:
-    """Returns this profile's matches, best score first."""
+    """Returns this profile's matches, best score first.
+
+    `failed`, if given, receives every call whose evaluation could not be obtained
+    (rate limit, timeout, unreadable answer). Such a call is missing from the
+    matches for this run only — it is not cached and will be evaluated again next
+    time. A caller that stores results needs to know the difference: "scored below
+    min_score" and "never scored" look identical in the returned list.
+    """
     ensure_local_backend(llm_config, allow_cloud=profile.cloud_erlaubt)
 
     candidates = []
@@ -470,6 +478,7 @@ def match_profile(
 
     matches: list[Match] = []
     evaluated = 0
+    failed_here = 0
     for call, result in candidates:
         key = cache_key(call.link, profile.hash, llm_extract.model_id(llm_config))
         evaluation = cache.get(key) if cache else None
@@ -478,6 +487,9 @@ def match_profile(
             evaluation = evaluate(call, profile, result.hits, llm_config, max_text_chars)
             evaluated += 1
             if evaluation is None:
+                failed_here += 1
+                if failed is not None:
+                    failed.append(call)
                 continue
             if cache:
                 cache.put(key, evaluation)
@@ -495,6 +507,8 @@ def match_profile(
     )
     if max_evaluations is not None and passed_prefilter > max_evaluations:
         message += f"; {passed_prefilter - max_evaluations} not evaluated, capped by max_evaluations_per_profile"
+    if failed_here:
+        message += f"; {failed_here} could not be evaluated (LLM error), retried next run"
     log.info(message + ")")
     matches.sort(key=lambda m: (-m.score, m.call.deadline is None, m.call.deadline))
     return matches

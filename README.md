@@ -483,7 +483,17 @@ are unaffected — those come from the extraction step, which reads the whole te
 ### Output and marking
 
 `output/<profil-id>/report.md` and `report.html` (self-contained, no external
-assets). Marking works like the Excel's Review column, but via CLI since a report
+assets).
+
+**A call that couldn't be scored is named, not dropped.** An evaluation can fail —
+rate limit, timeout, an answer that isn't the requested JSON — and such a call used
+to be missing from the report with nothing to say so: "scored below `min_score`" and
+"never scored" looked the same. The report now opens with an *Unvollständig* note
+listing those calls, the CLI warns, and library callers get them as
+`ProfileResult.failed` (next to `CollectionResult.unreachable` for sources). A
+failed evaluation is not cached, so the next run scores exactly those calls again.
+
+Marking works like the Excel's Review column, but via CLI since a report
 isn't editable:
 
 ```bash
