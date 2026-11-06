@@ -77,6 +77,15 @@ class PageCache:
         # deadline is re-picked from the stored list on every read. That lets a
         # cached recurring call advance to its next Stichtag instead of expiring.
         data["deadlines"] = [date.fromisoformat(d) for d in data.get("deadlines", [])]
+        # Checked on read as well, so entries stored before the check existed are
+        # cleaned from their stored text instead of being re-run through the model.
+        # Dropping every date falls back to the stored single deadline below, which
+        # for such entries was picked from the same unsupported list — so it goes too.
+        if data["deadlines"]:
+            supported = llm_extract.drop_unsupported_deadlines(data["deadlines"], data.get("text", ""))
+            if not supported:
+                data["deadline"] = None
+            data["deadlines"] = supported
         if data["deadlines"]:
             data["deadline"] = llm_extract.pick_deadline(data["deadlines"])
         else:

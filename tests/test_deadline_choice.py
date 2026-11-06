@@ -87,8 +87,8 @@ def test_a_cached_entry_re_picks_its_deadline_as_dates_pass(tmp_path, monkeypatc
     Stichtag passed, for as long as the entry stayed cached."""
     path = tmp_path / "pages.json"
     cache = PageCache(path)
-    cache.put("http://x", "text", "T", "", None, date(2026, 11, 30),
-              deadlines=[date(2026, 11, 30), date(2027, 3, 15)])
+    cache.put("http://x", "Stichtage: 30. November 2026 und 15. März 2027", "T", "", None,
+              date(2026, 11, 30), deadlines=[date(2026, 11, 30), date(2027, 3, 15)])
     cache.save()
 
     class Later(date):

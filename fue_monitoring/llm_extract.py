@@ -274,6 +274,93 @@ def _drop_unsupported_funding_rate(result: dict, text: str) -> dict:
     return result
 
 
+MONTHS = (
+    "januar", "februar", "märz", "april", "mai", "juni",
+    "juli", "august", "september", "oktober", "november", "dezember",
+)
+
+
+def _month_pattern(month: int) -> str:
+    """Matches a month written out or abbreviated ("März", "Mär.", "Maerz")."""
+    name = MONTHS[month - 1]
+    variants = {re.escape(name), re.escape(name[:3]) + r"\.?"}
+    if "ä" in name:
+        variants.add(re.escape(name.replace("ä", "ae")))
+    return "(?:" + "|".join(sorted(variants, key=len, reverse=True)) + ")"
+
+
+def _normalize_for_dates(text: str) -> str:
+    """Flattens scraped text so a date reads the same wherever it came from.
+
+    Collapses line breaks and non-breaking spaces between "15." and "April", and
+    rejoins words hyphenated across a line in PDF text: the Bundesanzeiger states a
+    real deadline as "6. De- zember 2026".
+    """
+    text = " ".join(text.split())
+    # Not before a conjunction: "Projekt- und Antragsverfahren" is not a hyphenation.
+    return re.sub(r"([a-zäöü])- (?!(?:und|oder|bis|bzw|sowie)\b)([a-zäöü])", r"\1\2", text)
+
+
+def deadline_in_text(day: date, text: str) -> bool:
+    """Whether a date the model returned is actually written in the source text.
+
+    Accepted as stated: "15.04.2026", "15.4.26", "15. April 2026", "2026-04-15".
+    Also accepted: day and month with no year attached ("jeweils der 15. März und der
+    15. September eines Jahres"). Recurring Stichtage are written that way, often in
+    a notice years older than the date the model expands them to, so the year can't
+    be required to appear. A day and month followed by a *different* year is not
+    accepted. Expects text already passed through _normalize_for_dates().
+    """
+    d = rf"0?{day.day}"
+    m_num = rf"0?{day.month}"
+    m_txt = _month_pattern(day.month)
+    year = rf"(?:{day.year}|{day.year % 100:02d})"
+    sep = r"\.\s*"
+    end = r"(?!\d)"
+
+    full = (
+        rf"(?<!\d){d}{sep}{m_num}{sep}{year}{end}",
+        rf"(?<!\d){d}\.?\s*{m_txt}\s*{day.year}{end}",
+        rf"{day.isoformat()}",
+    )
+    if any(re.search(p, text, re.IGNORECASE) for p in full):
+        return True
+
+    partial = (
+        rf"(?<!\d){d}{sep}{m_num}\.(?!\s*\d)",
+        # Not followed by a year: "15. April 2025" names 2025, not a yearless date.
+        rf"(?<!\d){d}\.?\s*{m_txt}(?![a-zäöü])(?!\s*\d)",
+    )
+    return any(re.search(p, text, re.IGNORECASE) for p in partial)
+
+
+def drop_unsupported_deadlines(deadlines: list[date], text: str) -> list[date]:
+    """Keeps only the submission dates that can be found in the source text.
+
+    Same reasoning as for the funding rate: an invented date is worse than none.
+    A missing date leaves the call "deadline unknown" for manual review; an invented
+    one puts it behind a real-looking Stichtag, or filters it out as expired.
+    """
+    text = _normalize_for_dates(text)
+    kept = []
+    for day in deadlines:
+        if deadline_in_text(day, text):
+            kept.append(day)
+        else:
+            log.warning(f"  (discarding deadline {day.isoformat()} — not found in the source text)")
+    return kept
+
+
+def _drop_unsupported_deadline_strings(result: dict, text: str) -> dict:
+    """Applies drop_unsupported_deadlines to the model's raw date strings."""
+    raw = result.get("deadlines")
+    if not isinstance(raw, list):
+        return result
+    supported = set(drop_unsupported_deadlines(parse_deadlines(raw), text))
+    result["deadlines"] = [s for s in raw if _parse_llm_date(s) in supported]
+    return result
+
+
 def extract(text: str, title: str, llm_config: dict) -> dict | None:
     """Returns the extracted fields, or None if the LLM couldn't be reached/parsed.
 
@@ -297,7 +384,10 @@ def extract(text: str, title: str, llm_config: dict) -> dict | None:
         log.warning(f"  ({backend} extraction failed, falling back to regex: {exc})")
         return None
 
-    return _drop_unsupported_funding_rate(result, text) if result else result
+    if not result:
+        return result
+    result = _drop_unsupported_funding_rate(result, text)
+    return _drop_unsupported_deadline_strings(result, text)
 
 
 def _parse_llm_date(raw: str) -> date | None:
