@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 
-import requests
 from bs4 import BeautifulSoup
 from dateutil import parser as dateparser
 
+from .. import http
 from ..models import FundingCall
 
 log = logging.getLogger(__name__)
@@ -27,11 +28,85 @@ SEARCH_URL = "https://api.tech.ec.europa.eu/search-api/prod/rest/search"
 HEADERS = {"User-Agent": "Mozilla/5.0 (fueMonitoring)", "Content-Type": "application/json"}
 
 
+class SourceUnavailable(Exception):
+    """A search request failed for a reason other than the response size."""
+
+
+class ResponseTooLarge(Exception):
+    """The API refused a page because the records on it are too large together.
+
+    Measured on 09.11.2026 with "Beamforming" (149 hits): pageSize 100 failed on
+    page 2, 50 on page 3, 25 on page 6, 10 on none. The API answers HTTP 400 with
+    {"type": "businessError", "message": "Result size limit 100mb has been reached,
+    try decrease page size."}. A few records carry huge metadata; any page holding
+    them is refused, so the remedy is to ask for the same positions in smaller pages.
+    """
+
+
+def _is_size_limit(response) -> bool:
+    if response.status_code != 400:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and "size limit" in str(body.get("message", "")).lower()
+
+
 def _fetch_page(text: str, page_number: int, page_size: int) -> dict:
     params = {"apiKey": "SEDIA", "text": text, "pageSize": page_size, "pageNumber": page_number}
-    resp = requests.post(SEARCH_URL, params=params, headers=HEADERS, json={}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    resp = http.post(SEARCH_URL, params=params, headers=HEADERS, json={}, timeout=30,
+                     label=f"EU Portal '{text}' page {page_number}")
+    if resp is None:
+        raise SourceUnavailable("not reachable")
+    if _is_size_limit(resp):
+        raise ResponseTooLarge()
+    if resp.status_code != 200:
+        raise SourceUnavailable(f"HTTP {resp.status_code}")
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise SourceUnavailable("no JSON in the response") from exc
+
+
+def _smaller_size(size: int) -> int:
+    """The largest divisor of `size` below it. Positions that start a page of `size`
+    then start whole pages of the smaller size too, so the API's page numbers still
+    line up with the positions we want."""
+    for candidate in range(size // 2, 0, -1):
+        if size % candidate == 0:
+            return candidate
+    return 1
+
+
+def _fetch_range(text: str, offset: int, size: int, skipped: list[int]) -> tuple[list[dict], bool]:
+    """The results at positions offset .. offset+size-1 (0-based; offset is a multiple
+    of size). The flag says the result list ended within this range.
+
+    A range refused as too large is split into smaller pages. A single record that
+    is refused even on its own is skipped and its position (1-based) noted in
+    `skipped`, so the caller can report the result as incomplete.
+    """
+    try:
+        data = _fetch_page(text, offset // size + 1, size)
+    except ResponseTooLarge:
+        if size == 1:
+            log.warning(f"    (EU Portal: '{text}' result {offset + 1} is too large even on its own, skipped)")
+            skipped.append(offset + 1)
+            return [], False
+        step = _smaller_size(size)
+        log.info(f"    (EU Portal: '{text}' results {offset + 1}-{offset + size} too large together, "
+                 f"retrying in pages of {step})")
+        results: list[dict] = []
+        for sub_offset in range(offset, offset + size, step):
+            part, ended = _fetch_range(text, sub_offset, step, skipped)
+            results += part
+            if ended:
+                return results, True
+        return results, False
+
+    results = data.get("results", [])
+    return results, len(results) < size
 
 
 def _first(metadata: dict, *keys: str) -> str:
@@ -115,29 +190,45 @@ def _to_funding_call(result: dict) -> FundingCall | None:
     )
 
 
-def fetch(keywords: list[str], page_size: int = 100, max_pages: int = 3) -> list[FundingCall]:
+@dataclass
+class FetchResult:
+    calls: list[FundingCall] = field(default_factory=list)
+    # One line per keyword whose results are incomplete. Not empty means: calls
+    # missing from `calls` may still exist, the run must not read them as gone.
+    problems: list[str] = field(default_factory=list)
+
+
+def fetch(keywords: list[str], page_size: int = 100, max_pages: int = 3) -> FetchResult:
+    """Searches the portal for every keyword. A keyword that fails is reported in
+    `problems` and the search goes on with the next one: one bad keyword must not
+    cost the whole run, nor pass as "nothing found"."""
     seen: dict[str, FundingCall] = {}
+    problems: list[str] = []
 
     for keyword in keywords:
-        for page in range(1, max_pages + 1):
-            log.info(f"  (EU Portal: Searching for '{keyword}' on page {page}...)")
-            data = _fetch_page(keyword, page, page_size)
-            results = data.get("results", [])
-            if not results:
-                break
+        skipped: list[int] = []
+        try:
+            for page in range(1, max_pages + 1):
+                log.info(f"  (EU Portal: Searching for '{keyword}' on page {page}...)")
+                results, ended = _fetch_range(keyword, (page - 1) * page_size, page_size, skipped)
 
-            for raw in results:
-                entry = _to_funding_call(raw)
-                if entry is None:
-                    continue
-                entry.matched_keywords = list(dict.fromkeys(entry.matched_keywords + [keyword]))
-                if entry.dedup_key in seen:
-                    existing = seen[entry.dedup_key]
-                    existing.matched_keywords = list(dict.fromkeys(existing.matched_keywords + [keyword]))
-                else:
-                    seen[entry.dedup_key] = entry
+                for raw in results:
+                    entry = _to_funding_call(raw)
+                    if entry is None:
+                        continue
+                    entry.matched_keywords = list(dict.fromkeys(entry.matched_keywords + [keyword]))
+                    if entry.dedup_key in seen:
+                        existing = seen[entry.dedup_key]
+                        existing.matched_keywords = list(dict.fromkeys(existing.matched_keywords + [keyword]))
+                    else:
+                        seen[entry.dedup_key] = entry
 
-            if len(results) < page_size:
-                break
+                if ended:
+                    break
+        except SourceUnavailable as exc:
+            log.warning(f"    (EU Portal: search for '{keyword}' failed: {exc}; continuing with the next keyword)")
+            problems.append(f"'{keyword}': {exc}")
+        if skipped:
+            problems.append(f"'{keyword}': result(s) {', '.join(map(str, skipped))} too large, skipped")
 
-    return list(seen.values())
+    return FetchResult(calls=list(seen.values()), problems=problems)

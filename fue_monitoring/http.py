@@ -49,14 +49,26 @@ def get(url: str, *, headers: dict | None = None, timeout: int = 30, label: str 
     None means every attempt failed — the caller should treat that as "unknown",
     not as "nothing there".
     """
-    where = label or url
+    return _with_retries(lambda: requests.get(url, headers=headers, timeout=timeout), label or url)
+
+
+def post(url: str, *, params: dict | None = None, headers: dict | None = None,
+         json: object = None, timeout: int = 30, label: str = ""):
+    """POSTs to a URL, retrying transient failures. Same contract as get()."""
+    return _with_retries(
+        lambda: requests.post(url, params=params, headers=headers, json=json, timeout=timeout),
+        label or url,
+    )
+
+
+def _with_retries(send, where: str):
     last_error = ""
 
     for attempt, delay in enumerate((0,) + BACKOFF_SECONDS):
         if delay:
             time.sleep(delay)
         try:
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = send()
         except requests.exceptions.RequestException as exc:
             # Connection reset, DNS hiccup, read timeout — all of them transient
             # often enough to be worth another attempt.

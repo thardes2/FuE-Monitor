@@ -77,11 +77,15 @@ def collect(config: dict) -> CollectionResult:
 
     if config["eu_portal"]["enabled"]:
         log.info("Querying EU Funding & Tenders Portal ...")
-        entries += eu_portal.fetch(
+        eu = eu_portal.fetch(
             keywords,
             page_size=config["eu_portal"]["page_size"],
             max_pages=config["eu_portal"]["max_pages"],
         )
+        entries += eu.calls
+        # Partly read counts as unreachable: the calls behind a failed keyword are
+        # missing only from this run.
+        unreachable += [f"EU Funding & Tenders Portal ({problem})" for problem in eu.problems]
 
     # Resolved once so a misconfigured backend reports itself here, rather than
     # once per scraped page.
