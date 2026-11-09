@@ -417,6 +417,17 @@ Their sections — `scouting:` (Signal-Radar) and `konsortium:` (consortium
 building) — are accepted and ignored here: not validated, not part of the
 fingerprint.
 
+### Suggesting themes
+
+`api.suggest_themes(config, name, description, material)` asks the LLM for themes
+from free text about an organisation (research focus, projects, products). Themes
+are search terms the prefilter looks for verbatim in a call, so the suggestions are
+checked against the same rules: at most three words, no terms found in nearly every
+call ("Forschung", "Sicherheit"), only a leading or trailing `*`. A long word gets a
+trailing `*` so plurals and compounds match too; acronyms stay strict. The result is
+a suggestion for a person to review; nothing is written. Like matching, it uses only
+the local backend unless `allow_cloud=True`.
+
 ### Profile files are checked, not just read
 
 A key a profile file sets and nothing reads is **refused**, naming the offending

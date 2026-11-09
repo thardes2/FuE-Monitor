@@ -61,6 +61,7 @@ from .pipeline import (
 from .profile_report import render_html, render_markdown, write_reports
 from .profiles import Profile, ProfileError, Theme, load_profile, load_profiles
 from .review import ReviewState
+from .themes import suggest_themes
 
 __all__ = [
     # configuration
@@ -80,6 +81,8 @@ __all__ = [
     "match_profiles",
     "prefilter",
     "merge_duplicates",
+    # helping to write a profile: suggestions only, nothing is stored
+    "suggest_themes",
     # rendering, which returns strings
     "render_markdown",
     "render_html",
