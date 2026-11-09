@@ -400,11 +400,22 @@ runs.
 One YAML per company in `profiles/`, modelled on
 [profiles/example.yaml](profiles/example.yaml). **These files hold confidential
 member data and are gitignored** — only the made-up `example.yaml` is in the
-repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`), `description`,
+repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`|`hochschule`), `description`,
 `themen` (each `begriff` + `gewicht` 1–3), `ausschluss`, `programme_bevorzugt`,
 `eigenanteil_max_prozent`, `sicp_ansprechpartner`, `cloud_erlaubt`. A broken profile aborts the
 run rather than being skipped, because a silently skipped company is
 indistinguishable from one that simply had no matches.
+
+`groesse: hochschule` marks a university research group (chair, professorship).
+It is evaluated with its own prompt: a university is never an SME, and a call that
+requires a consortium or an industry partner counts as eligible, since the group
+can join one. The prompt has its own version in the cache key
+(`HOCHSCHULE_PROMPT_VERSION`), so changing it leaves company evaluations cached.
+
+The profile format is shared with other tools (one profile per organisation).
+Their sections — `scouting:` (Signal-Radar) and `konsortium:` (consortium
+building) — are accepted and ignored here: not validated, not part of the
+fingerprint.
 
 ### Profile files are checked, not just read
 

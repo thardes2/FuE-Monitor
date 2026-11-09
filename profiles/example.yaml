@@ -7,7 +7,7 @@
 
 id: musterwerk
 name: Musterwerk Automatisierung GmbH
-groesse: kmu                      # kmu | grossunternehmen
+groesse: kmu                      # kmu | grossunternehmen | hochschule
 description: Entwicklungspartner für industrielle Bildverarbeitung
 
 # Matching terms. Weight 1-3 — 3 means "core business", 1 "adjacent, still of

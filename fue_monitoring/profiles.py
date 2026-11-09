@@ -22,7 +22,9 @@ from pathlib import Path
 
 import yaml
 
-VALID_SIZES = {"kmu", "grossunternehmen"}
+# "hochschule" is a university research group (chair, professorship). It gets its
+# own evaluation prompt, since what decides eligibility differs from a company's.
+VALID_SIZES = {"kmu", "grossunternehmen", "hochschule"}
 
 # Everything a profile file may contain. Anything else is refused, not warned about:
 # an unsupported key looks exactly like a supported one in YAML, and a "min_score: 40"
@@ -35,6 +37,12 @@ KNOWN_KEYS = frozenset({
     "eigenanteil_max_prozent", "sicp_ansprechpartner", "min_score", "cloud_erlaubt",
     "notizen",
 })
+# Sections that belong to other tools sharing this profile format (one profile per
+# organisation, read by every tool): "scouting" for Signal-Radar, "konsortium" for
+# consortium building. Accepted here and never read — not validated, not hashed, so
+# editing them neither fails a profile nor throws away cached evaluations.
+FOREIGN_SECTIONS = frozenset({"scouting", "konsortium"})
+KNOWN_KEYS = KNOWN_KEYS | FOREIGN_SECTIONS
 KNOWN_THEME_KEYS = frozenset({"begriff", "gewicht"})
 # Keys that were renamed, with their new name. Refused like any unknown key, but
 # with the one fix that applies, instead of the full list of supported keys.

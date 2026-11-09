@@ -38,6 +38,9 @@ log = logging.getLogger(__name__)
 # Bump when the prompt or schema changes so cached evaluations from the old
 # wording don't get reused.
 PROMPT_VERSION = "2"
+# The university prompt is versioned on its own: changing it must not invalidate
+# the cached company evaluations, and vice versa.
+HOCHSCHULE_PROMPT_VERSION = "1"
 
 # Far below llm_extract's 200k. Measured against qwen3.8 on the configured host:
 # the same announcement costs ~24 s at 20k characters and ~85 s at 98k, and one
@@ -102,6 +105,66 @@ Funding rate: {funding_rate}
 TEXT:
 {text}
 """
+
+
+# Same fields and schema as PROMPT_TEMPLATE, so reports and callers need no
+# second code path. What differs is the eligibility check: a university group is
+# never an SME, usually funded at 100 % of eligible expenditure (plus project
+# overhead), and often admitted only as a partner in a consortium with industry —
+# which makes it eligible, not ineligible.
+HOCHSCHULE_PROMPT_TEMPLATE = """You assess whether a German/EU research funding call fits a specific university research group.
+Judge only on what the call text below actually says — never invent conditions it doesn't state.
+Answer in German (the report goes to German-speaking staff).
+
+RESEARCH GROUP
+Name: {name}
+Type: university chair / professorship (public higher-education institution, not a company)
+Description: {description}
+Topics (weight 3 = core research, 1 = adjacent): {themen}
+Will not work on: {ausschluss}
+Preferred programmes: {programme}
+Will shoulder at most this own contribution: {eigenanteil}
+Prefiltered topic hits in this call: {treffer}
+
+FIELDS
+- score: 0-100, how well this call fits THIS research group. Weigh the topic weights: a hit on a
+  weight-3 topic counts far more than one on a weight-1 topic. A call that merely mentions a
+  topic in passing scores low; one whose actual subject is the group's core research scores high.
+  Score 0 if the call's actual subject is something under "Will not work on" above. Note the
+  difference: the call *funding* such work rules it out, whereas the call merely saying that such
+  work is excluded from funding does not — that is the call agreeing with the group, not a
+  conflict. Say which of the two it is in begruendung whenever one of those words appears.
+- begruendung: 2-3 sentences, German, why that score — name the concrete overlap or mismatch.
+  If the group can only take part as a partner (e.g. a consortium led by a company is required),
+  say so here.
+- foerderfaehig: "ja", "nein" or "unklar" — whether a university may receive funding from this call,
+  as sole applicant or as a partner in a consortium. A required consortium or industry partner does
+  NOT make it "nein": the group can join one. It is "nein" when the call names eligible applicants
+  and universities/research institutions are not among them (e.g. only companies, only SMEs, only
+  municipalities, only individual persons), or when it is restricted to a region or country the group
+  isn't in. It is "unklar" when the text doesn't say who may apply.
+- foerderfaehig_grund: German, the concrete reason when it's "nein" or "unklar"
+  (e.g. "nur Unternehmen antragsberechtigt", "Antragsberechtigte nicht genannt").
+  null when "ja".
+- fundstelle: a VERBATIM quote from the call text below that supports your eligibility judgement,
+  copied exactly, no paraphrase, at most ~200 characters. null if the text says nothing about it.
+
+CALL
+Title: {title}
+Programme: {programme_call}
+Deadline: {deadline}
+Funding rate: {funding_rate}
+
+TEXT:
+{text}
+"""
+
+
+def prompt_for(profile: Profile) -> tuple[str, str]:
+    """The evaluation prompt for this profile, and the version that goes into its cache key."""
+    if profile.groesse == "hochschule":
+        return HOCHSCHULE_PROMPT_TEMPLATE, f"h{HOCHSCHULE_PROMPT_VERSION}"
+    return PROMPT_TEMPLATE, PROMPT_VERSION
 
 
 class BackendNotLocalError(RuntimeError):
@@ -284,7 +347,7 @@ def verify_quote(quote: str | None, text: str) -> bool:
     return _close_enough(quote_words, normalised_text.split())
 
 
-def cache_key(call_link: str, profile_hash: str, model: str = "") -> str:
+def cache_key(call_link: str, profile_hash: str, model: str = "", prompt_version: str | None = None) -> str:
     """Identifies one evaluation: this call, for this profile, by this model and prompt.
 
     The model belongs in the key because different models score the same call
@@ -293,7 +356,8 @@ def cache_key(call_link: str, profile_hash: str, model: str = "") -> str:
     from two models into one report, and switching back would resurrect the older
     model's verdicts.
     """
-    raw = f"{call_link}|{profile_hash}|{model}|v{PROMPT_VERSION}"
+    # prompt_version defaults to the company prompt's, so existing keys stay as they were.
+    raw = f"{call_link}|{profile_hash}|{model}|v{prompt_version or PROMPT_VERSION}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
@@ -417,7 +481,8 @@ def evaluate(
 ) -> dict | None:
     text = f"{call.title} {call.text}".strip()
     themen = ", ".join(f"{t.begriff} ({t.gewicht})" for t in profile.themen)
-    prompt = PROMPT_TEMPLATE.format(
+    template, _ = prompt_for(profile)
+    prompt = template.format(
         name=profile.name,
         groesse=profile.groesse,
         description=profile.description or "—",
@@ -480,7 +545,7 @@ def match_profile(
     evaluated = 0
     failed_here = 0
     for call, result in candidates:
-        key = cache_key(call.link, profile.hash, llm_extract.model_id(llm_config))
+        key = cache_key(call.link, profile.hash, llm_extract.model_id(llm_config), prompt_for(profile)[1])
         evaluation = cache.get(key) if cache else None
 
         if evaluation is None:

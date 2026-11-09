@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fue-monitor"
-version = "0.2.0"
+version = "0.3.0"
 description = "Collect German and EU R&D funding calls and match them against company profiles"
 readme = "README.md"
 requires-python = ">=3.10"
