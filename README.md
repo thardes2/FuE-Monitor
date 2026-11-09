@@ -53,22 +53,23 @@ request and falls back to regex. Profile matching needs a working backend.
 
 ### 3. Add API keys in `config.local.yaml`
 
-Create `config.local.yaml` next to `config.yaml` (it is gitignored, see
-[Secrets](#secrets-configlocalyaml)):
+Copy the template next to `config.yaml` and fill it in:
 
-```yaml
-gov_bekanntmachungen:
-  brave_api_key: "..."   # needed for bmftr.bund.de, by far the largest source
-llm:
-  ollama:
-    base_url: "http://ollama-host:11434"   # only if Ollama runs on another machine
-  # or, only if you chose Gemini in step 2:
-  # backend: "gemini"
-  # gemini:
-  #   api_key: "..."
+```bash
+cp config.local.yaml.example config.local.yaml
 ```
 
-Without a Brave key the BMFTR source is skipped with a warning; the other ministries
+Every value is explained in the file. What usually needs setting:
+
+| Key | When |
+|---|---|
+| `gov_bekanntmachungen.brave_api_key` | always — needed for bmftr.bund.de, by far the largest source |
+| `llm.ollama.base_url` | if Ollama runs on another machine, e.g. `http://<host>:11434` |
+| `llm.ollama.model` | if that server has a different model than `qwen3.8:latest` |
+| `llm.backend`, `llm.gemini.api_key` | only if you chose Gemini in step 2 |
+
+`config.local.yaml` is gitignored and never committed; see
+[Secrets](#secrets-configlocalyaml). Without a Brave key the BMFTR source is skipped with a warning; the other ministries
 are crawled directly and need no key. How to get one is described under
 [Sources](#sources).
 
@@ -694,16 +695,15 @@ output — stale beats blank, for the reason just above.
 ## Secrets (`config.local.yaml`)
 
 API keys (Brave, Gemini) never go into the committed [config.yaml](config.yaml).
-Instead, create a `config.local.yaml` next to it (already gitignored) with just
-the keys you want to override, e.g.:
+They go into `config.local.yaml` next to it, made from the committed template
+[config.local.yaml.example](config.local.yaml.example) (step 3 of the setup).
 
-```yaml
-gov_bekanntmachungen:
-  brave_api_key: "..."
-llm:
-  gemini:
-    api_key: "..."
-```
+- `config.local.yaml` is in `.gitignore`. The template is committed and holds no
+  real values.
+- Tests keep it that way (`tests/test_config_local_example.py`): every secret in the
+  template must be empty, no address other than localhost may appear in it, every
+  key must exist in `config.yaml` (the merge would silently ignore a misspelt one),
+  and `config.local.yaml` must stay ignored by git.
 
 It's deep-merged on top of `config.yaml` at load time — see
 [fue_monitoring/config.py](fue_monitoring/config.py). The `ollama` backend needs no

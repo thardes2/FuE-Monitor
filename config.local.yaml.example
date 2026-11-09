@@ -1,0 +1,34 @@
+# Template for config.local.yaml — copy it, then fill in the values:
+#
+#   cp config.local.yaml.example config.local.yaml
+#
+# config.local.yaml holds secrets and machine-specific settings. It is listed in
+# .gitignore and must never be committed; this template is committed and must stay
+# free of real values (tests/test_config_local_example.py checks both).
+#
+# It is deep-merged on top of config.yaml at load time (fue_monitoring/config.py):
+# only the keys set here change, everything else comes from config.yaml. Delete
+# whatever you don't need — an empty value here means "not configured".
+
+gov_bekanntmachungen:
+  # Brave Search API key, needed for bmftr.bund.de, by far the largest source.
+  # Without it the "brave" sources are skipped with a warning. How to get one:
+  # README, section "Sources".
+  brave_api_key: ""
+
+llm:
+  # "ollama" (default, nothing leaves your network) or "gemini" (hosted by Google:
+  # scraped page text is sent there; profiles only with cloud_erlaubt: true).
+  backend: "ollama"
+
+  ollama:
+    # Address of the Ollama server. Keep localhost if Ollama runs on this machine;
+    # otherwise e.g. "http://<host>:11434". An internal address belongs here, not in
+    # the committed config.yaml.
+    base_url: "http://localhost:11434"
+    # Must be a tag that "ollama list" shows on that server.
+    model: "qwen3.8:latest"
+
+  gemini:
+    # Only for backend "gemini": https://aistudio.google.com/apikey
+    api_key: ""
