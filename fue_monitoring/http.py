@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 
 import requests
 
@@ -43,13 +44,17 @@ def _retry_after(response) -> float | None:
     return float(seconds) if seconds <= MAX_RETRY_AFTER_SECONDS else None
 
 
-def get(url: str, *, headers: dict | None = None, timeout: int = 30, label: str = ""):
+def get(url: str, *, headers: dict | Callable[[], dict] | None = None, timeout: int = 30, label: str = ""):
     """GETs a URL, retrying transient failures. Returns the response, or None.
 
     None means every attempt failed — the caller should treat that as "unknown",
-    not as "nothing there".
+    not as "nothing there". `headers` may be a function; it is then called for every
+    attempt, so a retry can go out with a different API key.
     """
-    return _with_retries(lambda: requests.get(url, headers=headers, timeout=timeout), label or url)
+    def send():
+        return requests.get(url, headers=headers() if callable(headers) else headers, timeout=timeout)
+
+    return _with_retries(send, label or url)
 
 
 def post(url: str, *, params: dict | None = None, headers: dict | None = None,

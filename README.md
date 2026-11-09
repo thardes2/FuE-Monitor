@@ -63,7 +63,7 @@ Every value is explained in the file. What usually needs setting:
 
 | Key | When |
 |---|---|
-| `gov_bekanntmachungen.brave_api_key` | always — needed for bmftr.bund.de, by far the largest source |
+| `gov_bekanntmachungen.brave_api_key` | always — needed for bmftr.bund.de, by far the largest source. One key, or a list of keys: each request then uses one at random |
 | `llm.ollama.base_url` | if Ollama runs on another machine, e.g. `http://<host>:11434` |
 | `llm.ollama.model` | if that server has a different model than `qwen3.8:latest` |
 | `llm.backend`, `llm.gemini.api_key` | only if you chose Gemini in step 2 |
@@ -127,7 +127,9 @@ robots.txt `Crawl-delay` plus an LLM call (see [Cache](#cache)).
       credits/month easily covers our volume) → create an API key → paste into
       `gov_bekanntmachungen.brave_api_key` in `config.local.yaml` (see below).
       Leave it empty to skip `brave`-mode sources; `listing`-mode sources still
-      work without it.
+      work without it. With several keys, give them as a YAML list: every Brave
+      request (retries included) then picks one at random, which spreads the
+      load and lets a retry after a 429 land on another key.
 
   A `brave`-mode source searches **two** query sets and takes the union:
   `discovery_terms` (generic words like "Bekanntmachung"/"Förderrichtlinie", which

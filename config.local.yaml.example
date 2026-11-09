@@ -13,7 +13,11 @@
 gov_bekanntmachungen:
   # Brave Search API key, needed for bmftr.bund.de, by far the largest source.
   # Without it the "brave" sources are skipped with a warning. How to get one:
-  # README, section "Sources".
+  # README, section "Sources". Several keys as a list; every request then uses
+  # one of them at random:
+  #   brave_api_key:
+  #     - "erster-schluessel"
+  #     - "zweiter-schluessel"
   brave_api_key: ""
 
 llm:

@@ -90,7 +90,8 @@ gov_bekanntmachungen:
   # brave_api_key below. DON'T put the real key here — this file is committed.
   # Put it in config.local.yaml instead (gitignored, deep-merged on top of this
   # file at load time). Leave brave_api_key empty to skip all "brave" sources
-  # (any "listing" sources still work without it).
+  # (any "listing" sources still work without it). Any number of keys can be
+  # given as a list; each request then picks one at random.
   enabled: true
   brave_api_key: ""
   sources:

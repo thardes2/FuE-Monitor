@@ -34,6 +34,7 @@ own, such as bmv.de, whose announcements are only findable through its site sear
 from __future__ import annotations
 
 import logging
+import random
 import time
 from urllib.parse import quote_plus, urlencode, urljoin
 
@@ -102,14 +103,39 @@ def _remember_url(urls: dict[str, str], url: str) -> None:
         urls[key] = stripped
 
 
-def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_results: int, pages: int = 1) -> list[str]:
+def brave_keys(value) -> list[str]:
+    """`brave_api_key` from the config as a list of usable keys.
+
+    One key as a string, or any number of them as a list; blanks are dropped, so
+    an empty string or an empty list means "not configured".
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"gov_bekanntmachungen.brave_api_key: expected a string or a list, got {type(value).__name__}")
+    return [str(key).strip() for key in value if str(key or "").strip()]
+
+
+def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max_results: int, pages: int = 1) -> list[str]:
     """Announcement URLs Brave knows for `term` on `site`, across `pages` result pages.
 
     Brave caps a page at 20 results and the offset at 9, and only some results on
     any page are announcements, so a single page is a thin sample — that thinness
     is why an announcement can silently drop out of a run when the ranking shifts.
+
+    Every request, retries included, goes out with a key drawn at random from
+    `api_keys`, spreading the load over all of them; a retry after a 429 thus
+    usually lands on another key. Keys are never logged, only their position.
     """
-    headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
+    chosen: list[int] = []
+
+    def headers() -> dict:
+        index = random.randrange(len(api_keys))
+        chosen.append(index)
+        return {"Accept": "application/json", "X-Subscription-Token": api_keys[index]}
+
     urls: list[str] = []
 
     for offset in range(max(pages, 1)):
@@ -122,7 +148,8 @@ def _brave_urls(term: str, site: str, link_marker: str, api_key: str, max_result
         )
         if resp is None or resp.status_code != 200:
             detail = f": {resp.text[:200]}" if resp is not None else ""
-            log.warning(f"    Brave search failed for '{term}' on {site}{detail}")
+            key = f" (last try with key {chosen[-1] + 1} of {len(api_keys)})" if chosen and len(api_keys) > 1 else ""
+            log.warning(f"    Brave search failed for '{term}' on {site}{key}{detail}")
             break
 
         results = resp.json().get("web", {}).get("results", [])
@@ -333,7 +360,7 @@ def _build_call(url: str, data: dict, keywords: list[str]) -> FundingCall:
 def fetch(
     source_config: dict,
     keywords: list[str],
-    brave_api_key: str,
+    brave_api_key: str | list[str],
     llm_config: dict | None,
     cache: PageCache | None = None,
 ) -> list[FundingCall]:
@@ -344,7 +371,8 @@ def fetch(
 
     urls: dict[str, str] = {}
     if discovery == "brave":
-        if not brave_api_key:
+        api_keys = brave_keys(brave_api_key)
+        if not api_keys:
             log.warning(f"  ({name}: brave_api_key not set, skipping this source)")
             return []
         # Two complementary query sets, because neither alone is complete:
@@ -358,7 +386,7 @@ def fetch(
                 term,
                 source_config["search_site"],
                 link_marker,
-                brave_api_key,
+                api_keys,
                 source_config.get("max_results_per_keyword", 20),
                 source_config.get("search_pages", 1),
             ):
