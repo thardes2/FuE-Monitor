@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest==8.4.2"]
 
 # The command line stays exactly as it was; this only makes it reachable after an
 # install, instead of only from the source directory.

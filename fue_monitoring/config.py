@@ -10,6 +10,20 @@ import yaml
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
 
+def find_default_config() -> Path | None:
+    """Where the command line looks for config.yaml when --config isn't given.
+
+    Next to the package first, which is the repository root in a source checkout or
+    an editable install. After a regular `pip install .` that is site-packages,
+    where no config.yaml is shipped (deliberately, see pyproject.toml), so the
+    current directory is tried next. None if neither has one.
+    """
+    for candidate in (DEFAULT_CONFIG_PATH, Path.cwd() / "config.yaml"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _deep_merge(base: dict, overrides: dict) -> dict:
     for key, value in overrides.items():
         if isinstance(value, dict) and isinstance(base.get(key), dict):

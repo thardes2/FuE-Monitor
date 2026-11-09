@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from . import matching, pipeline, profile_report, profiles as profiles_module, review
-from .config import load_config
+from .config import find_default_config, load_config
 from .export import write_excel
 from .models import FundingCall
 from .pipeline import _review_state_path, apply_filters
@@ -118,7 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
     # library consumer passes its own, and so should anyone running two
     # configurations side by side.
     parser.add_argument("--config", metavar="PATH", default=None,
-                        help="configuration file to use (default: config.yaml next to the package)")
+                        help="configuration file to use (default: config.yaml next to the package, "
+                        "otherwise in the current directory)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="also show debug-level messages")
     parser.add_argument("--profiles", action="store_true", help="also build a report for every company profile")
@@ -157,7 +159,17 @@ def configure_cli_logging(verbose: bool = False) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_cli_logging(verbose=args.verbose)
-    config = load_config(args.config) if args.config else load_config()
+    config_path = Path(args.config) if args.config else find_default_config()
+    if config_path is None or not config_path.is_file():
+        where = config_path or "next to the package or in the current directory"
+        print(
+            f"No configuration file found ({where}).\n"
+            "Pass one with --config PATH, or run from a directory that contains config.yaml.\n"
+            "The repository's config.yaml is a working starting point to copy.",
+            file=sys.stderr,
+        )
+        return 2
+    config = load_config(config_path)
 
     if args.mark:
         mark(config, *args.mark)

@@ -3,6 +3,103 @@
 Collects R&D funding calls from multiple sources, filters them by keywords, funding
 rate and deadline, and writes the result to an Excel file.
 
+## Setup
+
+Requires Python 3.10 or newer.
+
+Company profiles, the library interface (`fue_monitoring.api`) and everything else
+in the sections from [Firmenprofile](#firmenprofile-company-profiles) on exist on
+the branch `feature/profiles` only, until it is merged into `main`. Check out that
+branch, or pin a commit from it (see [Using it as a library](#using-it-as-a-library)).
+
+### 1. Install
+
+From a source checkout — the usual way, since the configuration lives in the
+repository:
+
+```bash
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+```
+
+Or as a package, which also puts the `fue-monitor` command on the PATH (see
+[Using it as a library](#using-it-as-a-library)):
+
+```bash
+./.venv/bin/pip install .        # or: pip install -e . while working on the code
+```
+
+`config.yaml` is deliberately not part of the installed package. Without
+`--config`, the command line looks for it next to the package (the repository root
+in a checkout or an editable install), then in the current directory.
+
+### 2. Choose how funding rates and deadlines are extracted
+
+`llm.enabled` is on by default and uses a **local Ollama** instance, so nothing is
+sent to a hosted service unless you choose to. One of:
+
+- **Ollama** (default): install [Ollama](https://ollama.com), then
+  `ollama pull qwen3.8`. The model must match `llm.ollama.model` in
+  [config.yaml](config.yaml); check with `ollama list`. Ollama on another machine
+  works too: set `llm.ollama.base_url` in `config.local.yaml` (step 3). That is
+  still no hosted API, but the profile data travels over the network to that host.
+- **Gemini**: set `llm.backend: "gemini"` and an API key in `config.local.yaml`
+  (step 3). Scraped page text is sent to Google.
+- **No LLM**: set `llm.enabled: false`. Regex-only extraction, noticeably less
+  reliable — see [Extraction quality](#extraction-quality-funding-rate--deadline).
+
+Without a running Ollama and with the default left on, every page logs a failed
+request and falls back to regex. Profile matching needs a working backend.
+
+### 3. Add API keys in `config.local.yaml`
+
+Create `config.local.yaml` next to `config.yaml` (it is gitignored, see
+[Secrets](#secrets-configlocalyaml)):
+
+```yaml
+gov_bekanntmachungen:
+  brave_api_key: "..."   # needed for bmftr.bund.de, by far the largest source
+llm:
+  ollama:
+    base_url: "http://ollama-host:11434"   # only if Ollama runs on another machine
+  # or, only if you chose Gemini in step 2:
+  # backend: "gemini"
+  # gemini:
+  #   api_key: "..."
+```
+
+Without a Brave key the BMFTR source is skipped with a warning; the other ministries
+are crawled directly and need no key. How to get one is described under
+[Sources](#sources).
+
+### 4. Adjust the filters
+
+All filter criteria live in [config.yaml](config.yaml): keywords, minimum funding
+rate, whether expired deadlines are excluded, and after how many days a deadline is
+marked as "urgent". Company profiles are optional, see
+[Firmenprofile](#firmenprofile-company-profiles).
+
+### 5. Run
+
+```bash
+./.venv/bin/python3 -m fue_monitoring.main            # from the checkout
+fue-monitor --config /path/to/config.yaml             # after pip install .
+```
+
+The result is written to `output/funding_calls.xlsx` (colour-coded by deadline
+status: expired/urgent/open/unknown, with an autofilter on every column). Add
+`--profiles` to also build a report per company profile; `--help` lists all options.
+
+The first broad run takes a while: every uncached page costs its site's
+robots.txt `Crawl-delay` plus an LLM call (see [Cache](#cache)).
+
+### Tests
+
+```bash
+./.venv/bin/python3 -m pip install -r requirements-dev.txt
+./.venv/bin/python3 -m pytest tests/ -q
+```
+
 ## Sources
 
 - **EU Funding & Tenders Portal** – fully automatic, via the public search API.
@@ -250,9 +347,9 @@ one of two backends — they're never both called:
 - **Gemini setup** (~1 min, free): [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
   → create an API key → put it in `config.local.yaml` (see below).
 - **Ollama setup**: have [Ollama](https://ollama.com) running and the model pulled
-  (`ollama pull qwen3.6`), then set `llm.ollama.model` to a tag `ollama list`
+  (`ollama pull qwen3.8`), then set `llm.ollama.model` to a tag `ollama list`
   actually shows. `think: false` is set deliberately — with a reasoning model like
-  qwen3.6, leaving thinking on spends most of the time and tokens on a thinking
+  qwen3.8, leaving thinking on spends most of the time and tokens on a thinking
   pass this extraction task doesn't need.
 
 Set `llm.enabled: false` to skip the LLM entirely and use regex-only extraction.
@@ -402,7 +499,8 @@ One YAML per company in `profiles/`, modelled on
 member data and are gitignored** — only the made-up `example.yaml` is in the
 repository. Fields: `id`, `name`, `groesse` (`kmu`|`grossunternehmen`|`hochschule`), `description`,
 `themen` (each `begriff` + `gewicht` 1–3), `ausschluss`, `programme_bevorzugt`,
-`eigenanteil_max_prozent`, `sicp_ansprechpartner`, `cloud_erlaubt`. A broken profile aborts the
+`eigenanteil_max_prozent`, `sicp_ansprechpartner`, `min_score`, `cloud_erlaubt`, and
+`notizen` for free-form notes that nothing reads. A broken profile aborts the
 run rather than being skipped, because a silently skipped company is
 indistinguishable from one that simply had no matches.
 
@@ -539,13 +637,6 @@ sees one if its own themes appear in `beschreibung`. If a programme you added
 here for a specific company doesn't reach it, that's why — either extend the
 description (truthfully) or add a matching term to the profile.
 
-### Tests
-
-```bash
-./.venv/bin/python3 -m pip install -r requirements-dev.txt
-./.venv/bin/python3 -m pytest tests/ -q
-```
-
 ## Cache
 
 Announcement pages are static documents, but each uncached one costs its site's
@@ -615,8 +706,10 @@ llm:
 ```
 
 It's deep-merged on top of `config.yaml` at load time — see
-[fue_monitoring/config.py](fue_monitoring/config.py). The `ollama` backend needs
-nothing here, since it uses no credentials.
+[fue_monitoring/config.py](fue_monitoring/config.py). The `ollama` backend needs no
+credentials; what goes here for it is the address of a non-local host
+(`llm.ollama.base_url`), since the committed config.yaml is public and an internal
+host name does not belong in it.
 
 ## Using it as a library
 
@@ -624,6 +717,17 @@ The command line is one consumer of this package; a second application — a web
 service, say — is meant to be another. `fue_monitoring.api` is the supported
 surface, and the only module a consumer should import from. Everything else is
 internal and gets refactored without notice.
+
+A host application installs it pinned to a commit of `feature/profiles`, e.g. in its
+`requirements.txt`:
+
+```text
+fue-monitor @ git+ssh://git@git.uni-paderborn.de/thardes2/fue-monitor.git@<full commit hash>
+```
+
+The version in `pyproject.toml` goes up with every change to `fue_monitoring.api`.
+pip treats a new pin with an unchanged version as already satisfied, so without a
+version bump a consumer needs `pip install --force-reinstall --no-deps` to pick it up.
 
 ```python
 import logging
@@ -638,7 +742,8 @@ collection = api.collect(api.search_config_for(config, profiles))
 
 for result in api.match_profiles(config, collection, profiles):
     markdown = api.render_markdown(result.profile, result.matches,
-                                   frameworks=result.frameworks)
+                                   frameworks=result.frameworks,
+                                   failed=result.failed)
     ...   # store it, serve it, mail it
 ```
 
@@ -670,28 +775,6 @@ to a hosted model by some other path.
 Layout: `pipeline.py` decides, `main.py` is the CLI (arguments, logging, files), and
 `api.py` is the published door onto the first. Installing the package also puts the
 command line on the PATH as `fue-monitor`; `python -m fue_monitoring` works too.
-
-## Setup
-
-```bash
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-```
-
-## Configuration
-
-All filter criteria live in [config.yaml](config.yaml): keywords, minimum funding
-rate, whether expired deadlines are excluded, and after how many days a deadline is
-marked as "urgent".
-
-## Running
-
-```bash
-./.venv/bin/python3 -m fue_monitoring.main
-```
-
-The result is written to `output/funding_calls.xlsx` (colour-coded by deadline
-status: expired/urgent/open/unknown, with an autofilter on every column).
 
 ## License
 
