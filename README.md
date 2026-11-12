@@ -73,6 +73,24 @@ Every value is explained in the file. What usually needs setting:
 are crawled directly and need no key. How to get one is described under
 [Sources](#sources).
 
+**Several Brave keys.** `brave_api_key` takes one key as a string or any number as
+a list:
+
+```yaml
+gov_bekanntmachungen:
+  brave_api_key:
+    - "first-key"
+    - "second-key"
+```
+
+Every Brave request, retries included, picks one of them at random. That spreads
+the free monthly credits and the rate limit over all keys, and a retry after a
+`429` usually lands on another key. There is no further failover: a request that
+draws an invalid or exhausted key fails, the search for that term stops at that
+page, and the warning names the key's position (`key 2 of 3`), never the key
+itself. Blank entries are dropped, so
+an empty list counts as "no key".
+
 ### 4. Adjust the filters
 
 All filter criteria live in [config.yaml](config.yaml): keywords, minimum funding
