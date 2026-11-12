@@ -395,6 +395,13 @@ cache:
   enabled: true
   path: "cache/pages.json"
   max_age_days: 30
+  # Brave search answers, kept this many hours (0 = off). Brave bills every
+  # request, and a re-run after a crash, an abort or a config fix would otherwise
+  # pay for the same searches again. Cached per query and result page, so a new
+  # search term (e.g. a new profile theme) is still asked. Delete the file to
+  # force fresh searches.
+  search_path: "cache/brave_searches.json"
+  search_max_age_hours: 12
 
 output:
   path: "output/funding_calls.xlsx"

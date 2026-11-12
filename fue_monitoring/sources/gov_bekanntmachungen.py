@@ -41,7 +41,7 @@ from urllib.parse import quote_plus, urlencode, urljoin
 from bs4 import BeautifulSoup
 
 from .. import http, llm_extract, pdf_text
-from ..cache import PageCache
+from ..cache import PageCache, SearchCache
 from ..dedup import canonical_link
 from ..filters import extract_deadline, extract_funding_rate, matched_keywords
 from ..models import FundingCall
@@ -136,7 +136,8 @@ def _brave_error(resp, api_keys: list[str]) -> str:
 
 
 def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max_results: int,
-                pages: int = 1, usable: list[int] | None = None) -> list[str]:
+                pages: int = 1, usable: list[int] | None = None, stats: dict | None = None,
+                search_cache: SearchCache | None = None) -> list[str]:
     """Announcement URLs Brave knows for `term` on `site`, across `pages` result pages.
 
     Brave caps a page at 20 results and the offset at 9, and only some results on
@@ -150,6 +151,13 @@ def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max
     another key. `usable` holds positions in `api_keys`; pass the same list for
     every term of a run so a rejected key is dropped once, not drawn again per
     term. Keys are never logged, only their position.
+
+    A search that got answered logs one INFO line (results, announcement links, key),
+    so a run shows what worked and not only what failed. `stats`, if given, counts
+    answered and failed searches under "ok" and "failed".
+
+    With a `search_cache`, a result page answered within its max age is taken from
+    there instead of being bought again; each newly answered page goes into it.
     """
     if usable is None:
         usable = list(range(len(api_keys)))
@@ -164,13 +172,30 @@ def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max
         return f" (key {chosen[-1] + 1} of {len(api_keys)})" if chosen and len(api_keys) > 1 else ""
 
     urls: list[str] = []
+    answered = 0  # pages answered with 200, from Brave or from the search cache
+    from_cache = 0
+    results_seen = 0
+    failed = False
 
     offset = 0
     while offset < max(pages, 1):
+        params = {"q": f"site:{site} {term}", "count": min(max_results, 20), "offset": offset}
+        cache_key = f"{params['q']}|{params['offset']}|{params['count']}"
+        hit = search_cache.get(cache_key) if search_cache else None
+        if hit is not None:
+            results = hit[0]
+            from_cache += 1
+            offset += 1
+            answered += 1
+            results_seen += len(results)
+            urls += [item["url"] for item in results if link_marker in item.get("url", "")]
+            if not results:
+                break
+            continue
         if not usable:
             log.warning(f"    Brave search skipped for '{term}' on {site}: every API key was rejected")
+            failed = True
             break
-        params = {"q": f"site:{site} {term}", "count": min(max_results, 20), "offset": offset}
         # Brave rate-limits by plan, and a 429 here would otherwise quietly shrink
         # how much of a ministry we discover — the retry honours its Retry-After.
         resp = http.get(
@@ -187,14 +212,34 @@ def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max
         if resp is None or resp.status_code != 200:
             detail = f": {_brave_error(resp, api_keys)}" if resp is not None else ""
             log.warning(f"    Brave search failed for '{term}' on {site}{position()}{detail}")
+            failed = True
             break
         offset += 1
+        answered += 1
 
         results = resp.json().get("web", {}).get("results", [])
+        if search_cache:
+            search_cache.put(cache_key, [{"url": item.get("url", "")} for item in results])
+        results_seen += len(results)
         urls += [item["url"] for item in results if link_marker in item.get("url", "")]
         if not results:
             break
 
+    if answered:
+        pages_text = f"{answered} page" + ("s" if answered > 1 else "")
+        partly = ", then failed" if failed else ""
+        if from_cache == answered:
+            via = ", from cache"
+        elif from_cache:
+            via = f", {from_cache} from cache{position()}"
+        else:
+            via = position()
+        log.info(f"    Brave '{term}' on {site}: {results_seen} results on {pages_text}{partly}, "
+                 f"{len(urls)} announcement link(s){via}")
+    if stats is not None:
+        stats["failed" if failed else "ok"] = stats.get("failed" if failed else "ok", 0) + 1
+        if answered and from_cache == answered:
+            stats["cached"] = stats.get("cached", 0) + 1
     return urls
 
 
@@ -401,6 +446,7 @@ def fetch(
     brave_api_key: str | list[str],
     llm_config: dict | None,
     cache: PageCache | None = None,
+    search_cache: SearchCache | None = None,
 ) -> list[FundingCall]:
     name = source_config["name"]
     discovery = source_config["discovery"]
@@ -421,8 +467,8 @@ def fetch(
         # Shared by all terms: a key Brave rejects (e.g. out of credit) is dropped
         # once for the whole source instead of failing a search per term.
         usable = list(range(len(api_keys)))
+        stats: dict = {}
         for term in list(source_config.get("discovery_terms", [])) + list(keywords):
-            log.info(f" Scanning {term}")
             for url in _brave_urls(
                 term,
                 source_config["search_site"],
@@ -431,8 +477,18 @@ def fetch(
                 source_config.get("max_results_per_keyword", 20),
                 source_config.get("search_pages", 1),
                 usable,
+                stats,
+                search_cache,
             ):
                 _remember_url(urls, url)
+        rejected = len(api_keys) - len(usable)
+        log.info(
+            f"  ({name}: Brave answered {stats.get('ok', 0)} of "
+            f"{stats.get('ok', 0) + stats.get('failed', 0)} searches"
+            + (f" ({stats['cached']} from cache, not billed)" if stats.get("cached") else "")
+            + f", {len(urls)} distinct announcement URLs"
+            + (f"; {rejected} of {len(api_keys)} keys rejected" if rejected else "") + ")"
+        )
     elif discovery == "listing":
         include = source_config.get("link_text_include") or []
         exclude = source_config.get("link_text_exclude") or []

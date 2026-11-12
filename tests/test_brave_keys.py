@@ -106,7 +106,9 @@ class KeyedBrave:
         self.keys = []
 
         def fake_get(url, headers=None, **kwargs):
-            key = headers["X-Subscription-Token"]
+            key = (headers or {}).get("X-Subscription-Token")
+            if key is None:  # not a Brave search: fetch() downloading a found page
+                return Resp(status=404)
             self.keys.append(key)
             return answers.get(key, Resp(body={"web": {"results": [{"url": "https://x.example/bekanntmachung/1"}]}}))
 
@@ -145,3 +147,21 @@ def test_all_keys_rejected_stops_without_looping(monkeypatch, caplog):
         assert gov._brave_urls("KI", "x.example", "bekanntmachung", ["a", "b"], 20, pages=3) == []
     assert sorted(brave.keys) == ["a", "b"]
     assert "every API key was rejected" in caplog.text
+
+
+def test_answered_search_is_logged_at_info(monkeypatch, caplog):
+    KeyedBrave(monkeypatch, {})
+    with caplog.at_level(logging.INFO):
+        gov._brave_urls("KI", "x.example", "bekanntmachung", ["k1", "k2"], 20)
+    assert "Brave 'KI' on x.example: 1 results on 1 page, 1 announcement link(s)" in caplog.text
+    assert "failed" not in caplog.text
+
+
+def test_fetch_summarises_the_brave_searches(monkeypatch, caplog):
+    KeyedBrave(monkeypatch, {"leer": NO_CREDIT})
+    monkeypatch.setattr(gov.random, "randrange", lambda n: 0)
+    source = {"name": "BMFTR", "discovery": "brave", "link_path_marker": "bekanntmachung",
+              "search_site": "x.example", "crawl_delay": 0, "discovery_terms": ["Bekanntmachung"]}
+    with caplog.at_level(logging.INFO):
+        gov.fetch(source, ["KI"], ["leer", "voll"], None)
+    assert "BMFTR: Brave answered 2 of 2 searches, 1 distinct announcement URLs; 1 of 2 keys rejected" in caplog.text

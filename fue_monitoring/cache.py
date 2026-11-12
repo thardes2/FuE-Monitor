@@ -168,3 +168,70 @@ class PageCache:
 
         self._entries = merged
         self._dirty = False
+
+
+class SearchCache:
+    """Brave search answers, kept for a few hours.
+
+    Brave bills per request, and a run repeats the same searches: re-running after a
+    crash, an abort or a configuration fix would pay for every one of them again,
+    although the answers an hour later are the same. Cached per request (query,
+    page, page size), so a search term a run has not seen yet — a new profile
+    theme, say — is still asked. Only answered (200) searches are stored.
+
+    Every put() is written to disk at once: the point is to keep what was paid for
+    even when the run is killed right after.
+    """
+
+    def __init__(self, path: str | Path, max_age_hours: float = 12, enabled: bool = True):
+        self.path = Path(path)
+        self.max_age = timedelta(hours=max_age_hours)
+        self.enabled = enabled and max_age_hours > 0
+        self._entries: dict[str, dict] = self._read() if self.enabled else {}
+
+    def _read(self) -> dict[str, dict]:
+        if not self.path.exists():
+            return {}
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning(f"  (search cache at {self.path} unreadable, starting empty: {exc})")
+            return {}
+
+    def get(self, key: str) -> tuple[list[dict], timedelta] | None:
+        """(results, age) of a fresh answer, or None."""
+        if not self.enabled:
+            return None
+        entry = self._entries.get(key)
+        try:
+            age = datetime.now() - datetime.fromisoformat(entry["fetched_at"])
+        except (TypeError, KeyError, ValueError):
+            return None
+        if age > self.max_age or age < timedelta(0):
+            return None
+        return entry.get("results", []), age
+
+    def put(self, key: str, results: list[dict]) -> None:
+        if not self.enabled:
+            return
+        entry = {"fetched_at": datetime.now().isoformat(timespec="seconds"), "results": results}
+        merged = self._read()
+        # Expired entries are dropped on the way, so the file doesn't grow forever.
+        now = datetime.now()
+        merged = {
+            k: v for k, v in merged.items()
+            if isinstance(v, dict) and _fresh(v.get("fetched_at"), now, self.max_age)
+        }
+        merged[key] = entry
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.path)
+        self._entries = merged
+
+
+def _fresh(stamp, now: datetime, max_age: timedelta) -> bool:
+    try:
+        return now - datetime.fromisoformat(stamp) <= max_age
+    except (TypeError, ValueError):
+        return False

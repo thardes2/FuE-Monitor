@@ -66,6 +66,8 @@ def load_config(
     config["manual_import"]["input_dir"] = str(base_dir / config["manual_import"]["input_dir"])
     config["output"]["path"] = str(base_dir / config["output"]["path"])
     config["cache"]["path"] = str(base_dir / config["cache"]["path"])
+    if config["cache"].get("search_path"):
+        config["cache"]["search_path"] = str(base_dir / config["cache"]["search_path"])
     config["review"]["state_path"] = str(base_dir / config["review"]["state_path"])
 
     newsletter = config.get("foerderinfo_newsletter")

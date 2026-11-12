@@ -675,6 +675,17 @@ effect immediately without invalidating the cache. Entries expire after
 `cache.max_age_days`; delete `cache/pages.json` to force a full refresh (needed
 if you change the LLM prompt or model, since extracted values are cached).
 
+**Brave searches are cached for 12 hours.** Brave bills every request, and a
+re-run after a crash, an abort or a config fix would otherwise pay for the same
+searches again. Each answered result page is stored in `cache/brave_searches.json`
+(next to `pages.json`), keyed by query, page and page size, and written at once, so
+even a killed run keeps what it paid for. A term the cache hasn't seen yet, such as
+a new profile theme, is still searched; failed searches are not stored. The log
+shows `from cache` per term and `(N from cache, not billed)` in the source's
+summary. `cache.search_max_age_hours` sets the window (`0` turns it off); delete
+the file to force fresh searches now. The trade-off: an announcement published in
+those 12 hours shows up one run later.
+
 **Results are tied to the model that produced them.** Evaluations are keyed by
 backend and model (`ollama/qwen3.8:latest`, `gemini/gemini-flash-lite-latest`, …)
 alongside call link, profile fingerprint and prompt version — different models

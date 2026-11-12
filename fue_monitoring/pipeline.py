@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import dedup, llm_extract, matching, profiles as profiles_module, review
-from .cache import PageCache
+from .cache import PageCache, SearchCache
 from .filters import deadline_ok, deadline_status, funding_rate_ok, matched_keywords
 from .models import FundingCall
 from .profiles import Profile
@@ -120,12 +121,20 @@ def collect(config: dict) -> CollectionResult:
             max_age_days=config["cache"]["max_age_days"],
             enabled=config["cache"]["enabled"],
         )
+        # Defaults apply to config files written before the search cache existed
+        # (a deployed config.yaml is copied once): next to the page cache, 12 hours.
+        search_cache = SearchCache(
+            config["cache"].get("search_path")
+            or Path(config["cache"]["path"]).parent / "brave_searches.json",
+            max_age_hours=config["cache"].get("search_max_age_hours", 12),
+            enabled=config["cache"]["enabled"],
+        )
         try:
             for source_config in config["gov_bekanntmachungen"]["sources"]:
                 log.info(f"Searching {source_config['name']} ...")
                 try:
                     entries += gov_bekanntmachungen.fetch(
-                        source_config, keywords, brave_api_key, llm_config, cache
+                        source_config, keywords, brave_api_key, llm_config, cache, search_cache
                     )
                 except gov_bekanntmachungen.ListingUnavailable as exc:
                     # Not fatal for the run, but it must not pass as "this ministry
