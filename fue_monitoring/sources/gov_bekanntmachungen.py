@@ -118,27 +118,58 @@ def brave_keys(value) -> list[str]:
     return [str(key).strip() for key in value if str(key or "").strip()]
 
 
-def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max_results: int, pages: int = 1) -> list[str]:
+# Answers that say "this key is no good", not "try later": invalid key (401),
+# no credit left (402, "Prepaid credit balance is insufficient"), not allowed (403).
+# Retrying with the same key cannot help, so the key is set aside for the run.
+BRAVE_KEY_REJECTED = {401, 402, 403}
+
+
+def _brave_error(resp, api_keys: list[str]) -> str:
+    """Status and Brave's own error text, with any key masked."""
+    try:
+        detail = resp.json()["error"]["detail"]
+    except Exception:  # noqa: BLE001 — not Brave's error JSON: fall back to the raw text
+        detail = resp.text[:200]
+    for key in api_keys:
+        detail = detail.replace(key, "<key>")
+    return f"HTTP {resp.status_code}: {detail}"
+
+
+def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max_results: int,
+                pages: int = 1, usable: list[int] | None = None) -> list[str]:
     """Announcement URLs Brave knows for `term` on `site`, across `pages` result pages.
 
     Brave caps a page at 20 results and the offset at 9, and only some results on
     any page are announcements, so a single page is a thin sample — that thinness
     is why an announcement can silently drop out of a run when the ranking shifts.
 
-    Every request, retries included, goes out with a key drawn at random from
-    `api_keys`, spreading the load over all of them; a retry after a 429 thus
-    usually lands on another key. Keys are never logged, only their position.
+    Every request, retries included, goes out with a key drawn at random from the
+    usable ones, spreading the load over all of them; a retry after a 429 thus
+    usually lands on another key. A key Brave rejects (BRAVE_KEY_REJECTED, e.g. no
+    credit left) is removed from `usable` and the same page is asked again with
+    another key. `usable` holds positions in `api_keys`; pass the same list for
+    every term of a run so a rejected key is dropped once, not drawn again per
+    term. Keys are never logged, only their position.
     """
+    if usable is None:
+        usable = list(range(len(api_keys)))
     chosen: list[int] = []
 
     def headers() -> dict:
-        index = random.randrange(len(api_keys))
+        index = usable[random.randrange(len(usable))]
         chosen.append(index)
         return {"Accept": "application/json", "X-Subscription-Token": api_keys[index]}
 
+    def position() -> str:
+        return f" (key {chosen[-1] + 1} of {len(api_keys)})" if chosen and len(api_keys) > 1 else ""
+
     urls: list[str] = []
 
-    for offset in range(max(pages, 1)):
+    offset = 0
+    while offset < max(pages, 1):
+        if not usable:
+            log.warning(f"    Brave search skipped for '{term}' on {site}: every API key was rejected")
+            break
         params = {"q": f"site:{site} {term}", "count": min(max_results, 20), "offset": offset}
         # Brave rate-limits by plan, and a 429 here would otherwise quietly shrink
         # how much of a ministry we discover — the retry honours its Retry-After.
@@ -146,11 +177,18 @@ def _brave_urls(term: str, site: str, link_marker: str, api_keys: list[str], max
             f"{BRAVE_SEARCH_URL}?{urlencode(params)}",
             headers=headers, timeout=30, label=f"Brave search '{term}' on {site}",
         )
+        if resp is not None and resp.status_code in BRAVE_KEY_REJECTED:
+            rejected = chosen[-1]
+            if rejected in usable:
+                usable.remove(rejected)
+            log.warning(f"    Brave rejected{position()}, not using it again this run "
+                        f"({len(usable)} left): {_brave_error(resp, api_keys)}")
+            continue  # same page, another key
         if resp is None or resp.status_code != 200:
-            detail = f": {resp.text[:200]}" if resp is not None else ""
-            key = f" (last try with key {chosen[-1] + 1} of {len(api_keys)})" if chosen and len(api_keys) > 1 else ""
-            log.warning(f"    Brave search failed for '{term}' on {site}{key}{detail}")
+            detail = f": {_brave_error(resp, api_keys)}" if resp is not None else ""
+            log.warning(f"    Brave search failed for '{term}' on {site}{position()}{detail}")
             break
+        offset += 1
 
         results = resp.json().get("web", {}).get("results", [])
         urls += [item["url"] for item in results if link_marker in item.get("url", "")]
@@ -380,6 +418,9 @@ def fetch(
         # the user's keywords surface exactly those niche calls. Verified case: a
         # "KI in Wertschöpfungsketten" call that only the keyword query found.
         
+        # Shared by all terms: a key Brave rejects (e.g. out of credit) is dropped
+        # once for the whole source instead of failing a search per term.
+        usable = list(range(len(api_keys)))
         for term in list(source_config.get("discovery_terms", [])) + list(keywords):
             log.info(f" Scanning {term}")
             for url in _brave_urls(
@@ -389,6 +430,7 @@ def fetch(
                 api_keys,
                 source_config.get("max_results_per_keyword", 20),
                 source_config.get("search_pages", 1),
+                usable,
             ):
                 _remember_url(urls, url)
     elif discovery == "listing":

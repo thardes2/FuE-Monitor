@@ -98,3 +98,50 @@ def test_fetch_with_a_list_and_without_keys(brave, caplog):
     with caplog.at_level(logging.WARNING):
         assert gov.fetch(source, ["KI"], ["", " "], None) == []
     assert "brave_api_key not set" in caplog.text
+
+
+class KeyedBrave:
+    """Answers per key: `answers` maps a key to its response, default 200."""
+    def __init__(self, monkeypatch, answers):
+        self.keys = []
+
+        def fake_get(url, headers=None, **kwargs):
+            key = headers["X-Subscription-Token"]
+            self.keys.append(key)
+            return answers.get(key, Resp(body={"web": {"results": [{"url": "https://x.example/bekanntmachung/1"}]}}))
+
+        monkeypatch.setattr(http.requests, "get", fake_get)
+        monkeypatch.setattr(http.time, "sleep", lambda s: None)
+
+
+NO_CREDIT = Resp(status=402, body={"error": {"detail": "Prepaid credit balance is insufficient for this request."}})
+
+
+def test_key_without_credit_falls_back_to_another(monkeypatch, caplog):
+    brave = KeyedBrave(monkeypatch, {"leer": NO_CREDIT})
+    draws = iter([0, 0])  # first draw: "leer"; after it is dropped only "voll" is left
+    monkeypatch.setattr(gov.random, "randrange", lambda n: next(draws))
+    with caplog.at_level(logging.WARNING):
+        urls = gov._brave_urls("KI", "x.example", "bekanntmachung", ["leer", "voll"], 20)
+    assert urls == ["https://x.example/bekanntmachung/1"]
+    assert brave.keys == ["leer", "voll"]
+    assert "HTTP 402" in caplog.text and "key 1 of 2" in caplog.text
+    assert "failed" not in caplog.text
+
+
+def test_rejected_key_is_dropped_for_all_following_terms(monkeypatch):
+    brave = KeyedBrave(monkeypatch, {"leer": NO_CREDIT})
+    monkeypatch.setattr(gov.random, "randrange", lambda n: 0)  # always the first usable key
+    usable = [0, 1]
+    for term in ["A", "B", "C", "D", "E", "F"]:
+        gov._brave_urls(term, "x.example", "bekanntmachung", ["leer", "voll"], 20, usable=usable)
+    assert brave.keys.count("leer") == 1
+    assert usable == [1]
+
+
+def test_all_keys_rejected_stops_without_looping(monkeypatch, caplog):
+    brave = KeyedBrave(monkeypatch, {"a": NO_CREDIT, "b": Resp(status=401, text="invalid token")})
+    with caplog.at_level(logging.WARNING):
+        assert gov._brave_urls("KI", "x.example", "bekanntmachung", ["a", "b"], 20, pages=3) == []
+    assert sorted(brave.keys) == ["a", "b"]
+    assert "every API key was rejected" in caplog.text

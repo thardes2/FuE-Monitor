@@ -85,11 +85,13 @@ gov_bekanntmachungen:
 
 Every Brave request, retries included, picks one of them at random. That spreads
 the free monthly credits and the rate limit over all keys, and a retry after a
-`429` usually lands on another key. There is no further failover: a request that
-draws an invalid or exhausted key fails, the search for that term stops at that
-page, and the warning names the key's position (`key 2 of 3`), never the key
-itself. Blank entries are dropped, so
-an empty list counts as "no key".
+`429` usually lands on another key. A key Brave rejects outright (`401` invalid,
+`402` out of credit, `403` not allowed) is set aside for the rest of the run, and
+the same search is asked again with another key. The log names it once:
+`Brave rejected (key 1 of 3), not using it again this run (2 left): HTTP 402: …`.
+Only when every key is rejected are the remaining searches skipped. Keys are
+never logged, only their position. Blank entries are dropped, so an empty list
+counts as "no key".
 
 ### 4. Adjust the filters
 
