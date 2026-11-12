@@ -117,7 +117,13 @@ gov_bekanntmachungen:
       # to page through (Brave's offset caps at 9, so at most 10).
       max_results_per_keyword: 20
       search_pages: 3
-      crawl_delay: 30 # bmftr.bund.de's robots.txt specifies Crawl-delay: 30
+      # bmftr.bund.de's robots.txt says Crawl-delay: 30, but the server throttles
+      # harder, silently: a request it doesn't want gets no answer at all (read
+      # timeout, never a 429), and the retry a few seconds later goes through.
+      # Measured 2026-11-12: 35 s apart 2 of 2 timed out, 45 s apart 1 of 3. At
+      # 30 s about every second page cost a timeout plus a retry. No fixed spacing
+      # avoids it entirely; 45 s makes it rarer.
+      crawl_delay: 45
 
     - name: "BLE (Bundesanstalt für Landwirtschaft und Ernährung)"
       discovery: listing

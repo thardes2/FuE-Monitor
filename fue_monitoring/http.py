@@ -67,7 +67,15 @@ def post(url: str, *, params: dict | None = None, headers: dict | None = None,
 
 
 def _with_retries(send, where: str):
+    """Runs `send` until it answers, up to 1 + len(BACKOFF_SECONDS) attempts.
+
+    The log tells the whole story of a retried request, not just its failures: a
+    timeout line followed by nothing reads as "this page is lost", although the
+    next attempt usually gets it (bmftr.bund.de throttles by not answering). So a
+    retry says it is going on, a late success says so, and only giving up is final.
+    """
     last_error = ""
+    total = len(BACKOFF_SECONDS) + 1
 
     for attempt, delay in enumerate((0,) + BACKOFF_SECONDS):
         if delay:
@@ -80,16 +88,21 @@ def _with_retries(send, where: str):
             last_error = f"{type(exc).__name__}: {exc}"
         else:
             if response.status_code not in RETRYABLE_STATUS:
+                if attempt:
+                    outcome = "got it" if response.status_code == 200 else f"answered HTTP {response.status_code}"
+                    log.info(f"    ({where}: {outcome} on attempt {attempt + 1} of {total})")
                 return response
             last_error = f"HTTP {response.status_code}"
             stated = _retry_after(response)
             if stated is not None and attempt < len(BACKOFF_SECONDS):
-                log.warning(f"    ({where}: {last_error}, server asked for {stated:g}s)")
+                log.warning(f"    ({where}: attempt {attempt + 1} of {total}: {last_error}, "
+                            f"server asked to wait {stated:g}s, then trying again)")
                 time.sleep(stated)
                 continue
 
         if attempt < len(BACKOFF_SECONDS):
-            log.warning(f"    ({where}: {last_error}, retrying in {BACKOFF_SECONDS[attempt]}s)")
+            log.warning(f"    ({where}: attempt {attempt + 1} of {total}: {last_error}, "
+                        f"trying again in {BACKOFF_SECONDS[attempt]}s)")
 
-    log.warning(f"    could not fetch {where} after {len(BACKOFF_SECONDS) + 1} attempts: {last_error}")
+    log.warning(f"    gave up on {where} after {total} attempts: {last_error}")
     return None

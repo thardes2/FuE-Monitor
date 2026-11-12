@@ -185,8 +185,8 @@ def test_writing_reports_is_available_for_callers_that_want_files(tmp_path):
 def test_the_cli_still_accepts_its_arguments():
     from fue_monitoring import main
 
-    parsed = main.build_parser().parse_args(["--profile", "beispielbau", "-v"])
-    assert parsed.profile == "beispielbau" and parsed.verbose is True
+    parsed = main.build_parser().parse_args(["--profile", "musterwerk", "-v"])
+    assert parsed.profile == "musterwerk" and parsed.verbose is True
 
 
 def test_the_module_entry_point_works():

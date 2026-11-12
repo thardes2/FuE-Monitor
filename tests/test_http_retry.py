@@ -153,3 +153,30 @@ def test_an_unreadable_source_is_reported_and_does_not_stop_the_run(tmp_path, mo
 
     assert len(entries) == 1, "the working source still contributes"
     assert "incomplete" in logged and "Broken" in logged
+
+
+def test_retry_log_tells_the_page_was_got_in_the_end(monkeypatch, caplog):
+    """A timeout line alone reads as "page lost"; the late success must show too."""
+    import logging as _logging
+    import requests as _requests
+    from fue_monitoring import http as _http
+
+    answers = iter([_requests.exceptions.ReadTimeout("Read timed out."), None])
+
+    class Ok:
+        status_code = 200
+        headers = {}
+
+    def fake_get(url, **kwargs):
+        a = next(answers)
+        if a is not None:
+            raise a
+        return Ok()
+
+    monkeypatch.setattr(_http.requests, "get", fake_get)
+    monkeypatch.setattr(_http.time, "sleep", lambda s: None)
+    with caplog.at_level(_logging.INFO):
+        assert _http.get("https://x.example/a.html").status_code == 200
+    assert "attempt 1 of 4: ReadTimeout" in caplog.text and "trying again in 3s" in caplog.text
+    assert "got it on attempt 2 of 4" in caplog.text
+    assert "gave up" not in caplog.text

@@ -393,7 +393,10 @@ def _download_and_extract(
     that has one. None is not cached, so the next run tries again.
     """
     resp = http.get(url, headers=HEADERS, timeout=30)
-    if resp is None or resp.status_code != 200:
+    if resp is None:
+        return None  # http.get already logged that it gave up
+    if resp.status_code != 200:
+        log.warning(f"    ({url}: HTTP {resp.status_code})")
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -575,6 +578,7 @@ def fetch(
             )
             downloaded += 1
             if data is None:
+                log.warning("    -> skipped in this run; not cached, so the next run tries it again")
                 continue
             remember(data)
 
