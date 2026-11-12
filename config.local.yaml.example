@@ -20,6 +20,12 @@ gov_bekanntmachungen:
   #     - "zweiter-schluessel"
   brave_api_key: ""
 
+cache:
+  # How many hours a Brave search answer is reused instead of bought again, e.g.
+  # when a run is restarted after a crash or an abort. 0 = always search afresh.
+  # Fractions work (0.5 = 30 minutes). Details: README, section "Cache".
+  search_max_age_hours: 12
+
 llm:
   # "ollama" (default, nothing leaves your network) or "gemini" (hosted by Google:
   # scraped page text is sent there; profiles only with cloud_erlaubt: true).
